@@ -1,0 +1,1872 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Afterimage for KDE Plasma 6 Wayland
+Desktop Cognitive Telemetry & Autonomous AI Retrospective Engine.
+Features:
+- Wayland Native Event-driven KWin Script & evdev hardware metrics
+- Three-Tier Progressive Classification Pipeline
+- Pluggable AI Cognitive Retrospective Analysis (Ollama / Gemini / DeepSeek)
+- Privacy Redaction & Sanitization
+- Structured Markdown & Obsidian Daily Notes Sync
+"""
+
+import argparse
+import datetime
+import glob
+import json
+import math
+import os
+import re
+import selectors
+import signal
+import sqlite3
+import struct
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+# Add script directory to sys.path for internal modules (ai, outputs)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# --- Paths & Constants ---
+HOME = Path.home()
+CONFIG_DIR = HOME / ".config" / "afterimage"
+LEGACY_CONFIG_DIR = HOME / ".config" / "timetracker"
+DATA_DIR = HOME / ".local" / "share" / "afterimage"
+LEGACY_DATA_DIR = HOME / ".local" / "share" / "timetracker"
+BIN_DIR = HOME / ".local" / "bin"
+REPORTS_DIR = HOME / "Documents" / "AfterimageReports"
+SYSTEMD_USER_DIR = HOME / ".config" / "systemd" / "user"
+
+CONFIG_FILE = CONFIG_DIR / "config.json"
+RULES_FILE = CONFIG_DIR / "rules.json"
+DB_FILE = DATA_DIR / "afterimage.db"
+LEGACY_DB_FILE = LEGACY_DATA_DIR / "timetracker.db"
+KWIN_SCRIPT_FILE = DATA_DIR / "afterimage_kwin.js"
+SERVICE_FILE = SYSTEMD_USER_DIR / "afterimage.service"
+
+# --- Hardware Input Constants ---
+EVENT_FORMAT = "qqHHi" if struct.calcsize("P") == 8 else "llHHi"
+EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
+PX_TO_METERS = 0.0254 / 96.0  # Standard 96 DPI: 1 inch = 0.0254m = 96px => 1px ≈ 0.2646 mm
+
+
+def px_to_meters(px):
+    return px * PX_TO_METERS
+
+
+def format_distance(distance_px, lang="en"):
+    meters = px_to_meters(distance_px)
+    if meters >= 1000:
+        km = meters / 1000.0
+        return f"{km:.2f} km"
+    elif meters >= 1:
+        return f"{meters:.1f} m"
+    else:
+        cm = meters * 100.0
+        return f"{cm:.1f} cm"
+
+
+# --- i18n Localization Dictionaries ---
+I18N = {
+    "en": {
+        "title_today": "Desktop Screen Time Summary ({date})",
+        "active_time": "Active Focus Time",
+        "locked_time": "Locked / Away Time",
+        "total_time": "Total Online Time",
+        "total_keys": "Total Keystrokes",
+        "total_mouse": "Total Mouse Travel",
+        "unit_times": "keys",
+        "unit_short": "keys",
+        "kpm_unit": "KPM",
+        "mouse_clicks_label": "Clicks",
+        "hourly_dist": "24-Hour Activity Timeline",
+        "col_period": "Time Range",
+        "col_focus": "Focus Time",
+        "col_keys": "Keystrokes",
+        "col_mouse": "Mouse Travel",
+        "col_intensity": "Intensity",
+        "category_dist": "Category Distribution",
+        "top_apps": "Top Applications",
+        "key_tasks": "Key Window Tasks",
+        "no_records_today": "No activity records found for [{date}]. Make sure daemon is running (`timetrack service start`).",
+        "week_title": "Past 7 Days Activity Trends",
+        "no_records_week": "No activity data in the past 7 days.",
+        "service_status": "Service Status",
+        "latest_captured": "Latest Captured",
+        "current_app": "Current Application",
+        "current_window": "Current Window Title",
+        "current_duration": "Current Continuous Duration",
+        "no_records_db": "No records in database.",
+        "lang_switched": "Successfully changed language to: {lang}",
+        "lang_current": "Current configured language: {lang}",
+        "lang_available": "Available languages: en (English), zh (Simplified Chinese), auto (System Locale)",
+        "service_installed": "Successfully installed and started systemd user service: desktop-timetracker.service",
+        "report_saved": "Report saved to: {path}",
+        "report_exported": "Daily report exported: {path}",
+        "unknown_app": "Unknown Application",
+        "screen_locked": "Screen Locked",
+        "desktop_empty": "KDE Desktop",
+        # Duration formats
+        "dur_h_m": "{h}h {m:02d}m",
+        "dur_m_s": "{m}m {s:02d}s",
+        "dur_s": "{s}s",
+        # Report Markdown
+        "md_title": "# 📊 Desktop Daily Time Report ({date})",
+        "md_generated_at": "Auto-generated at: {dt}",
+        "md_core_kpis": "## 1. Core Overview",
+        "md_total_uptime": "Total Uptime",
+        "md_active_focus": "Active Focus Time",
+        "md_locked_away": "Locked / Away Time",
+        "md_total_keys": "Total Keystrokes",
+        "md_total_mouse": "Total Mouse Travel",
+        "md_cat_table_title": "## 2. Category Time Distribution",
+        "md_col_cat": "Category",
+        "md_col_dur": "Duration",
+        "md_col_share": "Share",
+        "md_col_bar": "Progress",
+        "md_top_apps_title": "## 3. Top 10 Most Used Applications",
+        "md_col_rank": "Rank",
+        "md_col_app": "Application",
+        "md_col_share_active": "% of Active Time",
+        "md_key_tasks_title": "## 4. Top 10 Key Windows & Tasks",
+        "md_col_details": "Window Title Details",
+        "md_hourly_title": "## 5. 24-Hour Activity Timeline",
+        "md_col_period": "Time Range",
+        "md_col_keys": "Keystrokes",
+        "md_col_mouse": "Mouse Travel",
+        "md_col_viz": "Activity Visualization",
+        "md_footer": "*Automatically recorded by Desktop TimeTracker*",
+        "md_no_records": "No activity records found for this date.",
+    },
+    "zh": {
+        "title_today": "桌面时间使用简报 ({date})",
+        "active_time": "专注活跃时长",
+        "locked_time": "锁屏挂机时长",
+        "total_time": "累计在线时间",
+        "total_keys": "全天键盘打字",
+        "total_mouse": "全天鼠标活动",
+        "unit_times": "次",
+        "unit_short": "次",
+        "kpm_unit": "键/分",
+        "mouse_clicks_label": "点击",
+        "hourly_dist": "24小时活跃时段分布",
+        "col_period": "时段",
+        "col_focus": "专注时长",
+        "col_keys": "打字量",
+        "col_mouse": "鼠标滑行",
+        "col_intensity": "强度",
+        "category_dist": "类别分布",
+        "top_apps": "Top 应用排行",
+        "key_tasks": "关键任务详情",
+        "no_records_today": "【{date}】今日暂无记录。请确保后台服务已启动 (`timetrack service start`)。",
+        "week_title": "最近 7 天活跃趋势统计",
+        "no_records_week": "最近 7 天暂无时间数据。",
+        "service_status": "服务运行状态",
+        "latest_captured": "最近捕获时间",
+        "current_app": "当前应用名称",
+        "current_window": "当前窗口标题",
+        "current_duration": "当前连续时长",
+        "no_records_db": "数据库中暂无记录。",
+        "lang_switched": "已将语言成功切换为: {lang}",
+        "lang_current": "当前配置语言: {lang}",
+        "lang_available": "可用语言: en (English), zh (简体中文), auto (系统默认)",
+        "service_installed": "已成功安装并启动 systemd 用户服务: desktop-timetracker.service",
+        "report_saved": "报告已保存至: {path}",
+        "report_exported": "每日时间报告已导出: {path}",
+        "unknown_app": "未知应用",
+        "screen_locked": "屏幕已锁定",
+        "desktop_empty": "KDE 桌面空白处",
+        # Duration formats
+        "dur_h_m": "{h}小时{m:02d}分",
+        "dur_m_s": "{m}分钟{s:02d}秒",
+        "dur_s": "{s}秒",
+        # Report Markdown
+        "md_title": "# 📊 桌面使用时间日报 ({date})",
+        "md_generated_at": "自动生成时间: {dt}",
+        "md_core_kpis": "## 1. 核心概览",
+        "md_total_uptime": "总开机时长",
+        "md_active_focus": "有效专注时长",
+        "md_locked_away": "锁屏/离开时长",
+        "md_total_keys": "全天键盘打字",
+        "md_total_mouse": "全天鼠标活动",
+        "md_cat_table_title": "## 2. 类别时间分布",
+        "md_col_cat": "分类",
+        "md_col_dur": "累计时长",
+        "md_col_share": "占比",
+        "md_col_bar": "进度条",
+        "md_top_apps_title": "## 3. 最常使用的应用 Top 10",
+        "md_col_rank": "排名",
+        "md_col_app": "应用程序",
+        "md_col_share_active": "占有效时间比",
+        "md_key_tasks_title": "4. 关键窗口与任务详情 Top 10",
+        "md_col_details": "窗口标题明细",
+        "md_hourly_title": "5. 全天活跃时段分布 (小时)",
+        "md_col_period": "时段",
+        "md_col_keys": "打字量",
+        "md_col_mouse": "鼠标滑行",
+        "md_col_viz": "活跃度可视化",
+        "md_footer": "*由 Desktop TimeTracker 自动记录生成*",
+        "md_no_records": "该日期无活动记录。",
+    }
+}
+
+CANONICAL_CATEGORIES = {
+    "development": {"zh": "编程开发", "en": "Development", "icon": "💻"},
+    "terminal": {"zh": "终端运维", "en": "Terminal & Ops", "icon": "📟"},
+    "browsing": {"zh": "网页浏览", "en": "Web Browsing", "icon": "🌐"},
+    "communication": {"zh": "即时通讯", "en": "Communication", "icon": "💬"},
+    "notes": {"zh": "文档笔记", "en": "Notes & Docs", "icon": "📝"},
+    "media": {"zh": "媒体娱乐", "en": "Media & Gaming", "icon": "🎬"},
+    "design": {"zh": "图形设计", "en": "Design & Creative", "icon": "🎨"},
+    "system": {"zh": "系统桌面", "en": "System & Desktop", "icon": "⚙️"},
+    "locked": {"zh": "锁屏/休眠", "en": "Locked / Away", "icon": "🔒"},
+    "other": {"zh": "其他应用", "en": "Other Apps", "icon": "📌"}
+}
+
+# XDG Specificity Priority: maps XDG category tokens to canonical categories
+XDG_CATEGORY_PRIORITY = [
+    ("TerminalEmulator", "terminal"),
+    ("WebBrowser", "browsing"),
+    ("IDE", "development"),
+    ("Development", "development"),
+    ("Debugger", "development"),
+    ("InstantMessaging", "communication"),
+    ("Chat", "communication"),
+    ("IRCClient", "communication"),
+    ("Email", "communication"),
+    ("Telephony", "communication"),
+    ("Game", "media"),
+    ("Player", "media"),
+    ("AudioVideo", "media"),
+    ("Audio", "media"),
+    ("Video", "media"),
+    ("Music", "media"),
+    ("WordProcessor", "notes"),
+    ("Spreadsheet", "notes"),
+    ("Presentation", "notes"),
+    ("Office", "notes"),
+    ("TextEditor", "notes"),
+    ("RasterGraphics", "design"),
+    ("VectorGraphics", "design"),
+    ("3DGraphics", "design"),
+    ("Photography", "design"),
+    ("Graphics", "design"),
+    ("FileManager", "system"),
+    ("Settings", "system"),
+    ("System", "system"),
+    ("Education", "notes"),
+    ("Utility", "other"),
+]
+
+# Reverse lookup for legacy/raw category names in DB
+CATEGORY_NAME_TO_KEY = {}
+for k, v in CANONICAL_CATEGORIES.items():
+    CATEGORY_NAME_TO_KEY[k] = k
+    CATEGORY_NAME_TO_KEY[v["zh"]] = k
+    CATEGORY_NAME_TO_KEY[v["en"]] = k
+    CATEGORY_NAME_TO_KEY[v["en"].lower()] = k
+
+# Fallback manual application names if XDG .desktop is missing
+APP_NAME_MAP = {
+    "firefox": "Firefox",
+    "google-chrome": "Google Chrome",
+    "chromium": "Chromium",
+    "zen-browser": "Zen Browser",
+    "brave-browser": "Brave Browser",
+    "microsoft-edge": "Microsoft Edge",
+    "orca": "Orca IDE",
+    "code": "VS Code",
+    "vscodium": "VSCodium",
+    "cursor": "Cursor",
+    "konsole": "Konsole",
+    "kitty": "Kitty",
+    "alacritty": "Alacritty",
+    "wezterm": "WezTerm",
+    "foot": "Foot Terminal",
+    "obsidian": "Obsidian",
+    "notion": "Notion",
+    "logseq": "Logseq",
+    "libreoffice": "LibreOffice",
+    "telegram-desktop": "Telegram",
+    "telegram": "Telegram",
+    "wechat": "WeChat",
+    "qq": "QQ",
+    "discord": "Discord",
+    "slack": "Slack",
+    "steam": "Steam",
+    "vlc": "VLC Media Player",
+    "mpv": "MPV",
+    "spotify": "Spotify",
+    "netease-cloud-music": "Netease Cloud Music",
+    "bilibili": "Bilibili",
+    "plasmashell": "KDE Desktop",
+    "screensaver": "Screen Locked",
+    "systemsettings": "System Settings",
+    "dolphin": "Dolphin File Manager",
+}
+
+DEFAULT_RULES = {
+    "language": "auto",
+    "categories": [
+        {
+            "id": "development",
+            "name": "编程开发",
+            "icon": "💻",
+            "apps": [
+                "orca", "code", "vscodium", "cursor", "nvim", "vim", "emacs",
+                "kate", "sublime_text", "idea", "pycharm", "clion", "rustrover",
+                "webstorm", "goland", "rider", "eclipse", "zed"
+            ],
+            "title_keywords": [
+                ".py", ".rs", ".js", ".ts", ".go", ".c", ".cpp", ".java",
+                ".sh", ".html", ".css", "Visual Studio Code", "Orca", "NeoVim", "Vim"
+            ]
+        },
+        {
+            "id": "terminal",
+            "name": "终端运维",
+            "icon": "📟",
+            "apps": [
+                "konsole", "kitty", "alacritty", "wezterm", "foot",
+                "xterm", "gnome-terminal", "terminator", "urxvt"
+            ],
+            "title_keywords": []
+        },
+        {
+            "id": "browsing",
+            "name": "网页浏览",
+            "icon": "🌐",
+            "apps": [
+                "google-chrome", "chromium", "firefox", "zen-browser",
+                "brave-browser", "microsoft-edge", "vivaldi", "opera", "tor-browser"
+            ],
+            "title_keywords": []
+        },
+        {
+            "id": "communication",
+            "name": "即时通讯",
+            "icon": "💬",
+            "apps": [
+                "telegram", "telegram-desktop", "wechat", "qq", "discord", "slack",
+                "element", "thunderbird", "feishu", "dingtalk", "teams"
+            ],
+            "title_keywords": ["Telegram", "微信", "Discord", "Slack", "QQ"]
+        },
+        {
+            "id": "notes",
+            "name": "文档笔记",
+            "icon": "📝",
+            "apps": [
+                "obsidian", "notion", "logseq", "libreoffice", "wps",
+                "typora", "marktext", "evince", "okular", "calibre", "zotero"
+            ],
+            "title_keywords": ["Obsidian", "Notion", "WPS", "PDF", "LibreOffice", "Typora"]
+        },
+        {
+            "id": "media",
+            "name": "媒体娱乐",
+            "icon": "🎬",
+            "apps": [
+                "bilibili", "mpv", "vlc", "spotify", "netease-cloud-music",
+                "steam", "gamescope", "lutris", "heroic"
+            ],
+            "title_keywords": ["Bilibili", "YouTube", "哔哩哔哩", "Spotify", "Steam"]
+        },
+        {
+            "id": "design",
+            "name": "图形设计",
+            "icon": "🎨",
+            "apps": [
+                "gimp", "inkscape", "blender", "krita", "figma"
+            ],
+            "title_keywords": ["Blender", "GIMP", "Krita", "Figma"]
+        },
+        {
+            "id": "system",
+            "name": "系统桌面",
+            "icon": "⚙️",
+            "apps": [
+                "plasmashell", "krunner", "systemsettings", "dolphin", "ark", "kio"
+            ],
+            "title_keywords": ["Desktop", "系统设置", "Dolphin"]
+        }
+    ],
+    "default_category": "other",
+    "soft_idle_threshold_seconds": 900,
+    "sample_interval_seconds": 5
+}
+
+
+def ensure_dirs():
+    for d in [CONFIG_DIR, DATA_DIR, BIN_DIR, REPORTS_DIR, SYSTEMD_USER_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def load_rules():
+    if not CONFIG_FILE.exists():
+        ensure_dirs()
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_RULES, f, ensure_ascii=False, indent=2)
+        return DEFAULT_RULES
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return DEFAULT_RULES
+
+
+def save_rules(rules):
+    ensure_dirs()
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(rules, f, ensure_ascii=False, indent=2)
+
+
+def get_language(cli_lang=None):
+    if cli_lang in ["en", "zh"]:
+        return cli_lang
+    rules = load_rules()
+    cfg_lang = rules.get("language", "auto")
+    if cfg_lang in ["en", "zh"]:
+        return cfg_lang
+    sys_locale = (os.environ.get("LC_ALL") or os.environ.get("LANG") or os.environ.get("LANGUAGE") or "").lower()
+    if sys_locale.startswith("zh") or "chinese" in sys_locale or "cn" in sys_locale:
+        return "zh"
+    return "en"
+
+
+def get_category_display(cat_raw, lang="en"):
+    cat_key = CATEGORY_NAME_TO_KEY.get(cat_raw)
+    if not cat_key:
+        cat_key = CATEGORY_NAME_TO_KEY.get(cat_raw.lower())
+
+    if cat_key and cat_key in CANONICAL_CATEGORIES:
+        item = CANONICAL_CATEGORIES[cat_key]
+        return item[lang], item["icon"]
+    return cat_raw, "📌"
+
+
+def format_duration(seconds, lang="en"):
+    if seconds < 0:
+        seconds = 0
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    t = I18N[lang]
+    if h > 0:
+        return t["dur_h_m"].format(h=h, m=m)
+    elif m > 0:
+        return t["dur_m_s"].format(m=m, s=s)
+    else:
+        return t["dur_s"].format(s=s)
+
+
+def format_duration_short(seconds):
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    if h > 0:
+        return f"{h}h {m:02d}m"
+    elif m > 0:
+        return f"{m}m"
+    else:
+        return f"{seconds}s"
+
+
+def make_bar(ratio, width=16):
+    full_blocks = int(ratio * width)
+    remainder = (ratio * width) - full_blocks
+    chars = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"]
+    sub_char = chars[int(remainder * 8)] if remainder > 0 else ""
+    bar = "█" * full_blocks + sub_char
+    return bar.ljust(width, "░")
+
+
+class XDGDesktopIndex:
+    """Fast in-memory index for XDG .desktop files across the system."""
+
+    def __init__(self):
+        self.index = {}
+        self.dirs = [
+            "/usr/share/applications",
+            "/usr/local/share/applications",
+            os.path.expanduser("~/.local/share/applications"),
+            "/var/lib/flatpak/exports/share/applications",
+            os.path.expanduser("~/.local/share/flatpak/exports/share/applications"),
+        ]
+        self.scan()
+
+    def scan(self):
+        self.index.clear()
+        for d in self.dirs:
+            if not os.path.isdir(d):
+                continue
+            for path in glob.glob(os.path.join(d, "*.desktop")):
+                stem = os.path.splitext(os.path.basename(path))[0].lower()
+                entry = {"name": "", "name_zh": "", "categories": [], "wm_class": "", "icon": ""}
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        in_section = False
+                        for line in f:
+                            line = line.strip()
+                            if line == "[Desktop Entry]":
+                                in_section = True
+                                continue
+                            elif line.startswith("[") and in_section:
+                                break
+                            if not in_section or "=" not in line:
+                                continue
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip()
+                            if k == "Name":
+                                entry["name"] = v
+                            elif k in ["Name[zh_CN]", "Name[zh]"] and not entry["name_zh"]:
+                                entry["name_zh"] = v
+                            elif k == "Categories":
+                                entry["categories"] = [c.strip() for c in v.split(";") if c.strip()]
+                            elif k == "StartupWMClass":
+                                entry["wm_class"] = v.lower()
+                            elif k == "Icon":
+                                entry["icon"] = v
+                except Exception:
+                    continue
+
+                if entry["name"]:
+                    self.index[stem] = entry
+                    if entry["wm_class"]:
+                        self.index[entry["wm_class"]] = entry
+
+    def lookup(self, *keys):
+        for k in keys:
+            if not k:
+                continue
+            k_clean = str(k).lower().strip()
+            if k_clean.endswith(".desktop"):
+                k_clean = k_clean[:-8]
+
+            if k_clean in self.index:
+                return self.index[k_clean]
+
+            # Try prefix stripping (e.g. org.kde.dolphin -> dolphin, com.obsproject.Studio -> studio)
+            if "." in k_clean:
+                sub = k_clean.split(".")[-1]
+                if sub in self.index:
+                    return self.index[sub]
+        return None
+
+
+class InputActivityMonitor:
+    """Zero-dependency, privacy-first background hardware input monitor.
+
+    Strict Invariants:
+    1. Blind key counter: When ev_type == EV_KEY and val == 1 on a keyboard,
+       immediately increment key_presses += 1. The keycode is NEVER stored,
+       logged, or mapped in memory.
+    2. Motion scalar: Mouse dx/dy are accumulated as Euclidean distance scalars only.
+       Screen coordinates (x, y) are never tracked.
+    3. 100% local, thread-safe, gracefully handles missing /dev/input permissions.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self._key_presses = 0
+        self._mouse_clicks = 0
+        self._mouse_distance_px = 0.0
+
+        # Mouse relative delta buffer per-device fd
+        self._mouse_dx = {}
+        self._mouse_dy = {}
+
+        self.running = False
+        self.thread = None
+        self.has_permission = True
+        self._warned_permission = False
+        self._fds = {}  # fd: (dev_type, node)
+        self._selector = None
+
+    def start(self):
+        if self.running:
+            return
+        self.running = True
+        self.thread = threading.Thread(target=self._worker, name="InputActivityMonitor", daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self._selector:
+            try:
+                self._selector.close()
+            except Exception:
+                pass
+        for fd in list(self._fds.keys()):
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+        self._fds.clear()
+
+    def get_and_reset(self):
+        with self.lock:
+            for fd in list(self._mouse_dx.keys()):
+                dx = self._mouse_dx.get(fd, 0)
+                dy = self._mouse_dy.get(fd, 0)
+                if dx != 0 or dy != 0:
+                    self._mouse_distance_px += math.hypot(dx, dy)
+                    self._mouse_dx[fd] = 0
+                    self._mouse_dy[fd] = 0
+
+            keys = self._key_presses
+            clicks = self._mouse_clicks
+            dist = int(round(self._mouse_distance_px))
+            self._key_presses = 0
+            self._mouse_clicks = 0
+            self._mouse_distance_px = 0.0
+            return keys, clicks, dist
+
+    @staticmethod
+    def scan_devices():
+        keyboards = []
+        mice = []
+        devices_file = Path("/proc/bus/input/devices")
+        if not devices_file.exists():
+            return keyboards, mice
+
+        try:
+            with open(devices_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except Exception:
+            return keyboards, mice
+
+        blocks = content.strip().split("\n\n")
+        for b in blocks:
+            lines = b.splitlines()
+            name = ""
+            handlers = []
+            for line in lines:
+                if line.startswith("N: Name="):
+                    name = line.split("=", 1)[1].strip('"')
+                elif line.startswith("H: Handlers="):
+                    handlers = line.split("=", 1)[1].strip().split()
+
+            event_node = None
+            for h in handlers:
+                if h.startswith("event"):
+                    event_node = f"/dev/input/{h}"
+                    break
+            if not event_node:
+                continue
+
+            lower_name = name.lower()
+            if any(ign in lower_name for ign in ["power button", "sleep button", "lid switch", "video bus", "speaker"]):
+                continue
+
+            is_mouse = "mouse" in handlers or any("mouse" in h for h in handlers) or "touchpad" in lower_name
+            is_kbd = "kbd" in handlers and not is_mouse
+
+            if is_kbd:
+                keyboards.append((name, event_node))
+            elif is_mouse:
+                mice.append((name, event_node))
+
+        return keyboards, mice
+
+    def _init_devices(self):
+        if not self._selector:
+            self._selector = selectors.DefaultSelector()
+
+        keyboards, mice = self.scan_devices()
+        all_devs = [(name, node, "kbd") for name, node in keyboards] + [(name, node, "mouse") for name, node in mice]
+
+        permission_err = False
+        opened_any = False
+        current_nodes = {dev_info[1] for dev_info in self._fds.values()}
+
+        for name, node, dev_type in all_devs:
+            if node in current_nodes:
+                continue
+            try:
+                fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+                self._selector.register(fd, selectors.EVENT_READ)
+                self._fds[fd] = (dev_type, node)
+                self._mouse_dx[fd] = 0
+                self._mouse_dy[fd] = 0
+                opened_any = True
+            except PermissionError:
+                permission_err = True
+            except Exception:
+                pass
+
+        if permission_err and not opened_any:
+            self.has_permission = False
+            if not self._warned_permission:
+                self._warned_permission = True
+                print(f"[{datetime.datetime.now()}] ⚠️ [Notice] /dev/input read access needed for keyboard/mouse activity metrics.")
+                print(f"[{datetime.datetime.now()}] To enable: sudo usermod -aG input $USER (then re-login). Continuing tracking window duration.")
+        elif opened_any:
+            self.has_permission = True
+            if self._warned_permission:
+                print(f"[{datetime.datetime.now()}] ✅ /dev/input opened successfully. Keyboard & mouse activity tracking is active.")
+                self._warned_permission = False
+
+    def _worker(self):
+        last_scan_time = 0
+        while self.running:
+            now = time.time()
+            if now - last_scan_time > 30:
+                last_scan_time = now
+                self._init_devices()
+
+            if not self._fds:
+                time.sleep(2.0)
+                continue
+
+            try:
+                events = self._selector.select(timeout=1.0)
+            except Exception:
+                break
+
+            for key, mask in events:
+                fd = key.fd
+                dev_type, node = self._fds.get(fd, ("unknown", ""))
+                try:
+                    data = os.read(fd, EVENT_SIZE * 64)
+                except (BlockingIOError, InterruptedError):
+                    continue
+                except Exception:
+                    try:
+                        self._selector.unregister(fd)
+                        os.close(fd)
+                    except Exception:
+                        pass
+                    self._fds.pop(fd, None)
+                    continue
+
+                if not data:
+                    continue
+
+                num_events = len(data) // EVENT_SIZE
+                for i in range(num_events):
+                    chunk = data[i * EVENT_SIZE:(i + 1) * EVENT_SIZE]
+                    sec, usec, ev_type, code, val = struct.unpack(EVENT_FORMAT, chunk)
+
+                    if dev_type == "kbd":
+                        # Absolute blind counter: count press (val == 1), immediately discard keycode
+                        if ev_type == 1 and val == 1:
+                            with self.lock:
+                                self._key_presses += 1
+                    elif dev_type == "mouse":
+                        if ev_type == 2:  # EV_REL
+                            if code == 0:  # REL_X
+                                self._mouse_dx[fd] = self._mouse_dx.get(fd, 0) + val
+                            elif code == 1:  # REL_Y
+                                self._mouse_dy[fd] = self._mouse_dy.get(fd, 0) + val
+                        elif ev_type == 0:  # EV_SYN
+                            dx = self._mouse_dx.get(fd, 0)
+                            dy = self._mouse_dy.get(fd, 0)
+                            if dx != 0 or dy != 0:
+                                dist = math.hypot(dx, dy)
+                                with self.lock:
+                                    self._mouse_distance_px += dist
+                                self._mouse_dx[fd] = 0
+                                self._mouse_dy[fd] = 0
+                        elif ev_type == 1 and val == 1:  # EV_KEY (button press)
+                            with self.lock:
+                                self._mouse_clicks += 1
+
+
+def resolve_db_path(for_writing: bool = False) -> Path:
+    if for_writing:
+        return DB_FILE
+    if DB_FILE.exists():
+        return DB_FILE
+    if LEGACY_DB_FILE.exists():
+        return LEGACY_DB_FILE
+    return DB_FILE
+
+
+class Database:
+    def __init__(self, db_path=None, for_writing: bool = False):
+        if db_path is None:
+            self.db_path = resolve_db_path(for_writing=for_writing)
+        else:
+            self.db_path = Path(db_path)
+        self._init_db()
+
+    def get_conn(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+    def _init_db(self):
+        ensure_dirs()
+        conn = self.get_conn()
+        try:
+            with conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS window_activities (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT NOT NULL,
+                        duration_seconds INTEGER NOT NULL,
+                        app_id TEXT NOT NULL,
+                        app_name TEXT NOT NULL,
+                        window_title TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        is_locked INTEGER DEFAULT 0,
+                        is_idle INTEGER DEFAULT 0,
+                        key_presses INTEGER DEFAULT 0,
+                        mouse_clicks INTEGER DEFAULT 0,
+                        mouse_distance_px INTEGER DEFAULT 0
+                    );
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_time ON window_activities(start_time, end_time);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_category ON window_activities(category);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_app ON window_activities(app_id);")
+
+                # Backward-compatibility schema migration
+                cur = conn.execute("PRAGMA table_info(window_activities);")
+                cols = [r["name"] for r in cur.fetchall()]
+                if "key_presses" not in cols:
+                    conn.execute("ALTER TABLE window_activities ADD COLUMN key_presses INTEGER DEFAULT 0;")
+                if "mouse_clicks" not in cols:
+                    conn.execute("ALTER TABLE window_activities ADD COLUMN mouse_clicks INTEGER DEFAULT 0;")
+                if "mouse_distance_px" not in cols:
+                    conn.execute("ALTER TABLE window_activities ADD COLUMN mouse_distance_px INTEGER DEFAULT 0;")
+        finally:
+            conn.close()
+
+    def save_record(self, start_time, end_time, duration, app_id, app_name, window_title, category, is_locked, is_idle, key_presses=0, mouse_clicks=0, mouse_distance_px=0, record_id=None):
+        if duration <= 0:
+            return None
+        conn = self.get_conn()
+        try:
+            with conn:
+                if record_id:
+                    conn.execute("""
+                        UPDATE window_activities
+                        SET end_time = ?, duration_seconds = ?, is_idle = ?,
+                            key_presses = ?, mouse_clicks = ?, mouse_distance_px = ?
+                        WHERE id = ?
+                    """, (end_time, duration, is_idle, key_presses, mouse_clicks, mouse_distance_px, record_id))
+                    return record_id
+                else:
+                    cur = conn.execute("""
+                        INSERT INTO window_activities (
+                            start_time, end_time, duration_seconds,
+                            app_id, app_name, window_title, category,
+                            is_locked, is_idle,
+                            key_presses, mouse_clicks, mouse_distance_px
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (start_time, end_time, duration, app_id, app_name, window_title, category, is_locked, is_idle, key_presses, mouse_clicks, mouse_distance_px))
+                    return cur.lastrowid
+        finally:
+            conn.close()
+
+    def query_day(self, target_date):
+        try:
+            dt = datetime.date.fromisoformat(str(target_date).strip())
+        except Exception:
+            dt = datetime.date.today()
+        target_str = dt.isoformat()
+        next_str = (dt + datetime.timedelta(days=1)).isoformat()
+
+        conn = self.get_conn()
+        try:
+            cur = conn.execute("""
+                SELECT * FROM window_activities
+                WHERE start_time >= ? AND start_time < ?
+                ORDER BY start_time ASC
+            """, (f"{target_str} 00:00:00", f"{next_str} 00:00:00"))
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def query_date_range(self, start_date, end_date):
+        try:
+            s_dt = datetime.date.fromisoformat(str(start_date).strip())
+        except Exception:
+            s_dt = datetime.date.today() - datetime.timedelta(days=6)
+        try:
+            e_dt = datetime.date.fromisoformat(str(end_date).strip())
+        except Exception:
+            e_dt = datetime.date.today()
+        start_str = s_dt.isoformat()
+        next_end_str = (e_dt + datetime.timedelta(days=1)).isoformat()
+
+        conn = self.get_conn()
+        try:
+            cur = conn.execute("""
+                SELECT * FROM window_activities
+                WHERE start_time >= ? AND start_time < ?
+                ORDER BY start_time ASC
+            """, (f"{start_str} 00:00:00", f"{next_end_str} 00:00:00"))
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+
+class Classifier:
+    """Three-Tier Progressive Classification Pipeline:
+    Tier 1: rules.json (User Custom Overrides)
+    Tier 2: System XDG .desktop Metadata (Weighted Specificity Categories & Localized Names)
+    Tier 3: Fallback (other)
+    """
+
+    def __init__(self, rules):
+        self.rules = rules
+        self.xdg_index = XDGDesktopIndex()
+
+    def classify(self, app_id, window_title, is_locked, desktop_file="", resource_class="", resource_name="", lang="en"):
+        if is_locked:
+            return "locked", "🔒", I18N[lang]["screen_locked"]
+
+        app_id_clean = (app_id or "").lower().strip()
+        title_clean = window_title or ""
+
+        # Step A: Resolve official application name via XDG Index
+        xdg_entry = self.xdg_index.lookup(desktop_file, resource_class, resource_name, app_id_clean)
+
+        friendly_name = None
+        if xdg_entry:
+            if lang == "zh" and xdg_entry.get("name_zh"):
+                friendly_name = xdg_entry["name_zh"]
+            else:
+                friendly_name = xdg_entry.get("name")
+
+        if not friendly_name:
+            friendly_name = APP_NAME_MAP.get(app_id_clean)
+        if not friendly_name:
+            if app_id_clean:
+                friendly_name = app_id_clean.split(".")[-1].replace("-", " ").replace("_", " ").title()
+            else:
+                friendly_name = I18N[lang]["unknown_app"]
+
+        # =========================================================================
+        # TIER 1: rules.json (User Custom Overrides - Highest Priority)
+        # =========================================================================
+        for cat in self.rules.get("categories", []):
+            cat_id = cat.get("id") or CATEGORY_NAME_TO_KEY.get(cat.get("name", ""), "other")
+            icon = cat.get("icon", "📌")
+
+            # Check app ID matching
+            for a in cat.get("apps", []):
+                a_lower = a.lower()
+                if a_lower and (
+                    a_lower in app_id_clean or
+                    (resource_class and a_lower in resource_class.lower()) or
+                    (desktop_file and a_lower in desktop_file.lower())
+                ):
+                    return cat_id, icon, friendly_name
+
+            # Check window title keywords
+            for kw in cat.get("title_keywords", []):
+                if kw and kw.lower() in title_clean.lower():
+                    return cat_id, icon, friendly_name
+
+        # =========================================================================
+        # TIER 2: System XDG .desktop Metadata (Weighted Specificity Categories)
+        # =========================================================================
+        if xdg_entry and xdg_entry.get("categories"):
+            cats = xdg_entry["categories"]
+            for xdg_kw, target_cat in XDG_CATEGORY_PRIORITY:
+                if xdg_kw in cats:
+                    canonical_info = CANONICAL_CATEGORIES.get(target_cat, {})
+                    icon = canonical_info.get("icon", "📌")
+                    return target_cat, icon, friendly_name
+
+        # =========================================================================
+        # TIER 3: Fallback Default
+        # =========================================================================
+        default_cat = self.rules.get("default_category", "other")
+        canonical_info = CANONICAL_CATEGORIES.get(default_cat, {})
+        icon = canonical_info.get("icon", "📌")
+        return default_cat, icon, friendly_name
+
+
+class ReportGenerator:
+    @staticmethod
+    def generate_markdown(records, target_date, lang="en"):
+        t = I18N[lang]
+        if not records:
+            return f"{t['md_title'].format(date=target_date)}\n\n{t['md_no_records']}\n"
+
+        total_active_secs = 0
+        total_locked_secs = 0
+        total_keys = 0
+        total_clicks = 0
+        total_mouse_px = 0
+        cat_times = {}
+        app_times = {}
+        window_times = {}
+        hourly_active = {h: 0 for h in range(24)}
+        hourly_keys = {h: 0 for h in range(24)}
+        hourly_mouse = {h: 0 for h in range(24)}
+
+        for r in records:
+            dur = r["duration_seconds"]
+            is_locked = r["is_locked"]
+            cat_raw = r["category"]
+            app = r["app_name"]
+            title = r["window_title"].strip() or "Untitled"
+
+            if is_locked:
+                total_locked_secs += dur
+            else:
+                total_active_secs += dur
+                kp = r.get("key_presses") or 0
+                mc = r.get("mouse_clicks") or 0
+                mdist = r.get("mouse_distance_px") or 0
+                total_keys += kp
+                total_clicks += mc
+                total_mouse_px += mdist
+
+                cat_display, _ = get_category_display(cat_raw, lang)
+                cat_times[cat_display] = cat_times.get(cat_display, 0) + dur
+                app_times[app] = app_times.get(app, 0) + dur
+                window_times[(app, title)] = window_times.get((app, title), 0) + dur
+
+                try:
+                    start_dt = datetime.datetime.fromisoformat(r["start_time"])
+                    h = start_dt.hour
+                    hourly_active[h] += dur
+                    hourly_keys[h] += kp
+                    hourly_mouse[h] += mdist
+                except Exception:
+                    pass
+
+        grand_total = total_active_secs + total_locked_secs
+        active_mins = total_active_secs / 60.0
+        kpm = (total_keys / active_mins) if active_mins > 0 else 0.0
+
+        sorted_cats = sorted(cat_times.items(), key=lambda x: x[1], reverse=True)
+        sorted_apps = sorted(app_times.items(), key=lambda x: x[1], reverse=True)[:10]
+        sorted_windows = sorted(window_times.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        md = []
+        md.append(t["md_title"].format(date=target_date))
+        md.append(f"\n> {t['md_generated_at'].format(dt=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}\n")
+
+        # Core KPIs
+        md.append(f"{t['md_core_kpis']}\n")
+        pct_active = (total_active_secs / grand_total * 100) if grand_total else 0
+        pct_locked = (total_locked_secs / grand_total * 100) if grand_total else 0
+        md.append(f"- **{t['md_total_uptime']}**: `{format_duration(grand_total, lang)}`")
+        md.append(f"- **{t['md_active_focus']}**: `{format_duration(total_active_secs, lang)}` ({pct_active:.1f}%)")
+        md.append(f"- **{t['md_locked_away']}**: `{format_duration(total_locked_secs, lang)}` ({pct_locked:.1f}%)")
+        md.append(f"- **{t['md_total_keys']}**: `{total_keys:,} {t['unit_short']}` ({kpm:.1f} {t['kpm_unit']})")
+        md.append(f"- **{t['md_total_mouse']}**: `{format_distance(total_mouse_px, lang)}` ({t['mouse_clicks_label']}: {total_clicks:,})")
+
+        # Category Table
+        md.append(f"\n{t['md_cat_table_title']}\n")
+        md.append(f"| {t['md_col_cat']} | {t['md_col_dur']} | {t['md_col_share']} | {t['md_col_bar']} |")
+        md.append("| :--- | :--- | :--- | :--- |")
+        for cat, secs in sorted_cats:
+            ratio = (secs / total_active_secs) if total_active_secs > 0 else 0
+            bar = make_bar(ratio, width=15)
+            md.append(f"| **{cat}** | `{format_duration(secs, lang)}` | `{ratio*100:.1f}%` | `{bar}` |")
+
+        # Top Apps Table
+        md.append(f"\n{t['md_top_apps_title']}\n")
+        md.append(f"| {t['md_col_rank']} | {t['md_col_app']} | {t['md_col_dur']} | {t['md_col_share_active']} |")
+        md.append("| :---: | :--- | :--- | :--- |")
+        for idx, (app, secs) in enumerate(sorted_apps, 1):
+            ratio = (secs / total_active_secs) if total_active_secs > 0 else 0
+            md.append(f"| {idx} | **{app}** | `{format_duration(secs, lang)}` | `{ratio*100:.1f}%` |")
+
+        # Top Tasks Table
+        md.append(f"\n{t['md_key_tasks_title']}\n")
+        md.append(f"| {t['md_col_rank']} | {t['md_col_app']} | {t['md_col_details']} | {t['md_col_dur']} |")
+        md.append("| :---: | :--- | :--- | :--- |")
+        for idx, ((app, title), secs) in enumerate(sorted_windows, 1):
+            clean_title = title.replace("|", "-")
+            if len(clean_title) > 60:
+                clean_title = clean_title[:57] + "..."
+            md.append(f"| {idx} | {app} | `{clean_title}` | `{format_duration(secs, lang)}` |")
+
+        # Hourly Activity Chart
+        md.append(f"\n{t['md_hourly_title']}\n")
+        md.append(f"| {t['md_col_period']} | {t['col_focus']} | {t['md_col_keys']} | {t['md_col_mouse']} | {t['md_col_viz']} |")
+        md.append("| :---: | :--- | :--- | :--- | :--- |")
+        for h in range(24):
+            secs = hourly_active[h]
+            keys = hourly_keys[h]
+            m_px = hourly_mouse[h]
+            if secs > 0 or keys > 0 or m_px > 0:
+                ratio = min(secs / 3600.0, 1.0)
+                bar = make_bar(ratio, width=12)
+                keys_str = f"{keys:,} {t['unit_short']}"
+                dist_str = format_distance(m_px, lang)
+                md.append(f"| `{h:02d}:00 - {h+1:02d}:00` | `{format_duration_short(secs)}` | `{keys_str}` | `{dist_str}` | `{bar}` |")
+
+        md.append(f"\n---\n{t['md_footer']}\n")
+        return "\n".join(md)
+
+
+class Daemon:
+    def __init__(self):
+        self.rules = load_rules()
+        self.classifier = Classifier(self.rules)
+        self.db = Database(for_writing=True)
+        self.running = True
+        self.current_chunk = None
+        self.last_flush_time = time.time()
+        self.kwin_script_id = None
+        self.journal_proc = None
+        self.input_monitor = InputActivityMonitor()
+        self.input_monitor.start()
+        self._pending_carryover_mouse_px = 0.0
+
+    def checkpoint_db(self):
+        try:
+            conn = self.db.get_conn()
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.execute("PRAGMA optimize;")
+            finally:
+                conn.close()
+            print(f"[{datetime.datetime.now()}] Database WAL checkpointed (TRUNCATE) and optimized.")
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] Warning: failed to checkpoint WAL: {e}")
+
+    def get_lock_status(self):
+        try:
+            res = subprocess.run(
+                ["qdbus6", "org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver.GetActive"],
+                capture_output=True, text=True, timeout=1.5
+            )
+            return res.stdout.strip() == "true"
+        except Exception:
+            return False
+
+    def load_kwin_script(self):
+        subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", "timetracker_kwin"], capture_output=True)
+        res = subprocess.run(
+            ["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", str(KWIN_SCRIPT_FILE), "timetracker_kwin"],
+            capture_output=True, text=True
+        )
+        script_id = res.stdout.strip()
+        if script_id and script_id.isdigit() and int(script_id) >= 0:
+            self.kwin_script_id = int(script_id)
+            subprocess.run(["qdbus6", "org.kde.KWin", f"/Scripting/Script{self.kwin_script_id}", "org.kde.kwin.Script.run"], capture_output=True)
+            print(f"[{datetime.datetime.now()}] KWin script registered successfully (id={self.kwin_script_id})")
+            return True
+        else:
+            print(f"[{datetime.datetime.now()}] Warning: failed to load KWin script: {res.stderr or res.stdout}")
+            return False
+
+    def unload_kwin_script(self):
+        try:
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", "timetracker_kwin"], capture_output=True)
+        except Exception:
+            pass
+
+    def flush_chunk(self, final=False):
+        if not self.current_chunk:
+            return
+
+        c = self.current_chunk
+        now = datetime.datetime.now()
+        start_dt = c["start_dt"]
+        last_dt = c["last_dt"]
+        duration = max(1, int((last_dt - start_dt).total_seconds()))
+
+        # Anti-churn debounce for transient switches:
+        # If final=True (switching away), chunk has not been written to DB (db_id is None),
+        # duration < 2 seconds, no key/mouse inputs occurred, and not screen-locked:
+        # Discard as transient focus jitter (Alt-Tab pass-through, tooltip/popup flickers).
+        is_transient = (
+            final
+            and c.get("db_id") is None
+            and duration < 2
+            and not c.get("is_locked", 0)
+            and c.get("key_presses", 0) == 0
+            and c.get("mouse_clicks", 0) == 0
+        )
+
+        if is_transient:
+            self._pending_carryover_mouse_px += c.get("mouse_distance_px", 0.0)
+            self.current_chunk = None
+            return
+
+        soft_threshold = self.rules.get("soft_idle_threshold_seconds", 900)
+        is_idle = 1 if (duration > soft_threshold and not c["is_locked"]) else 0
+
+        rec_id = self.db.save_record(
+            start_time=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            end_time=last_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            duration=duration,
+            app_id=c["app_id"],
+            app_name=c["app_name"],
+            window_title=c["window_title"],
+            category=c["category"],
+            is_locked=c["is_locked"],
+            is_idle=is_idle,
+            key_presses=c.get("key_presses", 0),
+            mouse_clicks=c.get("mouse_clicks", 0),
+            mouse_distance_px=c.get("mouse_distance_px", 0),
+            record_id=c.get("db_id")
+        )
+        c["db_id"] = rec_id
+        self.last_flush_time = time.time()
+
+        if final:
+            self.current_chunk = None
+
+    def check_daily_rollover(self, current_date_str):
+        if self.current_chunk:
+            chunk_date = self.current_chunk["start_dt"].strftime("%Y-%m-%d")
+            if chunk_date != current_date_str:
+                print(f"[{datetime.datetime.now()}] Date rollover detected ({chunk_date} -> {current_date_str}). Exporting report.")
+                self.flush_chunk(final=True)
+                self.export_report(chunk_date)
+                self.checkpoint_db()
+
+    def check_hourly_rollover(self, now):
+        if self.current_chunk:
+            chunk_dt = self.current_chunk["start_dt"]
+            if chunk_dt.hour != now.hour or chunk_dt.date() != now.date():
+                self.flush_chunk(final=True)
+
+    def export_report(self, date_str):
+        try:
+            records = self.db.query_day(date_str)
+            if records:
+                lang = get_language()
+                content = ReportGenerator.generate_markdown(records, date_str, lang=lang)
+                out_file = REPORTS_DIR / f"{date_str}.md"
+                with open(out_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"[{datetime.datetime.now()}] Daily report exported to {out_file}")
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] Error exporting report for {date_str}: {e}")
+
+    def handle_sample(self, window_data):
+        now = datetime.datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        self.check_daily_rollover(today_str)
+        self.check_hourly_rollover(now)
+
+        delta_keys, delta_clicks, delta_dist = self.input_monitor.get_and_reset()
+        if self.current_chunk:
+            self.current_chunk["key_presses"] = self.current_chunk.get("key_presses", 0) + delta_keys
+            self.current_chunk["mouse_clicks"] = self.current_chunk.get("mouse_clicks", 0) + delta_clicks
+            self.current_chunk["mouse_distance_px"] = self.current_chunk.get("mouse_distance_px", 0) + delta_dist
+            pending_keys = 0
+            pending_clicks = 0
+            pending_dist = 0
+        else:
+            pending_keys = delta_keys
+            pending_clicks = delta_clicks
+            pending_dist = delta_dist
+
+        is_locked = self.get_lock_status()
+        lang = get_language()
+        t = I18N[lang]
+
+        if is_locked:
+            app_id = "screensaver"
+            window_title = t["screen_locked"]
+            desktop_file = ""
+            resource_class = ""
+            resource_name = ""
+        elif not window_data:
+            app_id = "plasmashell"
+            window_title = t["desktop_empty"]
+            desktop_file = "plasmashell"
+            resource_class = "plasmashell"
+            resource_name = "plasmashell"
+        else:
+            desktop_file = window_data.get("desktopFile") or ""
+            resource_class = window_data.get("resourceClass") or ""
+            resource_name = window_data.get("resourceName") or ""
+            app_id = desktop_file or resource_class or resource_name or "unknown"
+            window_title = window_data.get("caption") or ""
+
+        category_key, icon, app_name = self.classifier.classify(
+            app_id=app_id,
+            window_title=window_title,
+            is_locked=is_locked,
+            desktop_file=desktop_file,
+            resource_class=resource_class,
+            resource_name=resource_name,
+            lang=lang
+        )
+
+        if self.current_chunk:
+            c = self.current_chunk
+            same_app = (c["app_id"] == app_id)
+            same_title = (c["window_title"] == window_title)
+            same_lock = (c["is_locked"] == (1 if is_locked else 0))
+
+            if same_app and same_title and same_lock:
+                c["last_dt"] = now
+                if time.time() - self.last_flush_time >= 10:
+                    self.flush_chunk(final=False)
+                return
+
+        self.flush_chunk(final=True)
+
+        self.current_chunk = {
+            "start_dt": now,
+            "last_dt": now,
+            "app_id": app_id,
+            "app_name": app_name,
+            "window_title": window_title,
+            "category": category_key,
+            "is_locked": 1 if is_locked else 0,
+            "db_id": None,
+            "key_presses": pending_keys,
+            "mouse_clicks": pending_clicks,
+            "mouse_distance_px": pending_dist + self._pending_carryover_mouse_px
+        }
+        self._pending_carryover_mouse_px = 0.0
+
+    def run(self):
+        print(f"[{datetime.datetime.now()}] Starting Desktop TimeTracker Daemon...")
+        ensure_dirs()
+        self.load_kwin_script()
+
+        def sig_handler(sig, frame):
+            print(f"\n[{datetime.datetime.now()}] Received shutdown signal ({sig}). Cleaning up...")
+            self.running = False
+
+        signal.signal(signal.SIGINT, sig_handler)
+        signal.signal(signal.SIGTERM, sig_handler)
+
+        cmd = ["journalctl", "--user", "-u", "plasma-kwin_wayland", "-f", "-o", "cat", "--lines", "0"]
+        self.journal_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+
+        last_heartbeat = time.time()
+
+        try:
+            while self.running:
+                line = self.journal_proc.stdout.readline()
+                if not line:
+                    time.sleep(0.5)
+                    continue
+
+                if "TIMETRACKER_TICK:" in line:
+                    raw_data = line.split("TIMETRACKER_TICK:", 1)[1].strip()
+                    try:
+                        data = None if raw_data == "null" else json.loads(raw_data)
+                        self.handle_sample(data)
+                    except Exception:
+                        pass
+
+                if time.time() - last_heartbeat > 60:
+                    last_heartbeat = time.time()
+                    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+                    self.export_report(today_str)
+
+        finally:
+            print(f"[{datetime.datetime.now()}] Finalizing database and unloading script...")
+            self.input_monitor.stop()
+            self.flush_chunk(final=True)
+            self.checkpoint_db()
+            if self.journal_proc:
+                self.journal_proc.terminate()
+            self.unload_kwin_script()
+            print(f"[{datetime.datetime.now()}] TimeTracker Daemon stopped cleanly.")
+
+
+# --- CLI Commands ---
+
+def cmd_today(args):
+    lang = get_language(args.lang)
+    t = I18N[lang]
+    db = Database()
+    target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
+    records = db.query_day(target_date)
+
+    if not records:
+        print(f"\n📅 {t['no_records_today'].format(date=target_date)}\n")
+        return
+
+    total_active = sum(r["duration_seconds"] for r in records if not r["is_locked"])
+    total_locked = sum(r["duration_seconds"] for r in records if r["is_locked"])
+    grand_total = total_active + total_locked
+
+    total_keys = sum((r.get("key_presses") or 0) for r in records if not r["is_locked"])
+    total_clicks = sum((r.get("mouse_clicks") or 0) for r in records if not r["is_locked"])
+    total_mouse_px = sum((r.get("mouse_distance_px") or 0) for r in records if not r["is_locked"])
+
+    active_mins = total_active / 60.0
+    kpm = (total_keys / active_mins) if active_mins > 0 else 0.0
+
+    cat_times = {}
+    cat_icons = {}
+    app_times = {}
+    win_times = {}
+    hourly_active = {h: 0 for h in range(24)}
+    hourly_keys = {h: 0 for h in range(24)}
+    hourly_mouse = {h: 0 for h in range(24)}
+
+    for r in records:
+        dur = r["duration_seconds"]
+        if not r["is_locked"]:
+            cat_raw = r["category"]
+            cat_display, icon = get_category_display(cat_raw, lang)
+            cat_times[cat_display] = cat_times.get(cat_display, 0) + dur
+            cat_icons[cat_display] = icon
+
+            app = r["app_name"]
+            title = r["window_title"] or "Desktop"
+            app_times[app] = app_times.get(app, 0) + dur
+            win_times[(app, title)] = win_times.get((app, title), 0) + dur
+
+            kp = r.get("key_presses") or 0
+            mdist = r.get("mouse_distance_px") or 0
+            try:
+                start_dt = datetime.datetime.fromisoformat(r["start_time"])
+                h = start_dt.hour
+                hourly_active[h] += dur
+                hourly_keys[h] += kp
+                hourly_mouse[h] += mdist
+            except Exception:
+                pass
+
+    title_box = f"📊 {t['title_today'].format(date=target_date)}"
+    box_len = max(63, len(title_box) + 12)
+    border = "═" * box_len
+
+    print(f"\n╔{border}╗")
+    print(f"║ {title_box.center(box_len - 2)} ║")
+    print(f"╚{border}╝")
+    pct_active = (total_active / grand_total * 100) if grand_total else 0
+    pct_locked = (total_locked / grand_total * 100) if grand_total else 0
+    print(f"  ⚡ {t['active_time']}: \033[1;32m{format_duration(total_active, lang)}\033[0m ({pct_active:.1f}%)")
+    print(f"  🔒 {t['locked_time']}: \033[1;33m{format_duration(total_locked, lang)}\033[0m ({pct_locked:.1f}%)")
+    print(f"  ⏳ {t['total_time']}: {format_duration(grand_total, lang)}")
+    print(f"  ⌨️  {t['total_keys']}: \033[1;36m{total_keys:,}\033[0m {t['unit_times']} (\033[36m{kpm:.1f} {t['kpm_unit']}\033[0m)")
+    print(f"  🖱️  {t['total_mouse']}: \033[1;35m{format_distance(total_mouse_px, lang)}\033[0m ({t['mouse_clicks_label']}: {total_clicks:,})")
+    print(f"─────────────────────────────────────────────────────────────────")
+
+    print(f"\n📂 【{t['category_dist']}】:")
+    for cat, secs in sorted(cat_times.items(), key=lambda x: x[1], reverse=True):
+        ratio = secs / total_active if total_active else 0
+        icon = cat_icons.get(cat, "📌")
+        bar = make_bar(ratio, width=16)
+        pct_str = f"{ratio*100:5.1f}%"
+        dur_str = format_duration_short(secs).rjust(8)
+        print(f"  {icon} {cat.ljust(14 if lang=='en' else 6)} [{bar}] \033[1;36m{pct_str}\033[0m ({dur_str})")
+
+    print(f"\n🏆 【{t['top_apps']}】:")
+    for idx, (app, secs) in enumerate(sorted(app_times.items(), key=lambda x: x[1], reverse=True)[:7], 1):
+        ratio = secs / total_active if total_active else 0
+        print(f"  {idx}. \033[1m{app}\033[0m: {format_duration(secs, lang)} ({ratio*100:.1f}%)")
+
+    print(f"\n🔍 【{t['key_tasks']}】:")
+    for idx, ((app, title), secs) in enumerate(sorted(win_times.items(), key=lambda x: x[1], reverse=True)[:5], 1):
+        clean_title = title if len(title) <= 45 else title[:42] + "..."
+        print(f"  {idx}. [{app}] {clean_title} ({format_duration(secs, lang)})")
+
+    # 24-Hour Integrated Matrix
+    active_hours = [h for h in range(24) if hourly_active[h] > 0 or hourly_keys[h] > 0 or hourly_mouse[h] > 0]
+    if active_hours:
+        print(f"\n🕒 【{t['hourly_dist']}】:")
+        print(f"  {t['col_period'].ljust(13)} {t['col_focus'].rjust(8)}   {t['col_keys'].rjust(10)}   {t['col_mouse'].rjust(10)}   {t['col_intensity']}")
+        print(f"  {'─'*13} {'─'*8}   {'─'*10}   {'─'*10}   {'─'*17}")
+        for h in range(24):
+            secs = hourly_active[h]
+            keys = hourly_keys[h]
+            m_px = hourly_mouse[h]
+            if secs > 0 or keys > 0 or m_px > 0:
+                ratio = min(secs / 3600.0, 1.0)
+                bar = make_bar(ratio, width=15)
+                period_str = f"{h:02d}:00 - {h+1:02d}:00"
+                dur_str = format_duration_short(secs).rjust(8)
+                keys_str = f"{keys:,} {t['unit_short']}".rjust(10)
+                dist_str = format_distance(m_px, lang).rjust(10)
+                print(f"  {period_str} {dur_str}   \033[1;36m{keys_str}\033[0m   \033[1;35m{dist_str}\033[0m   [{bar}]")
+    print("")
+
+
+def cmd_week(args):
+    lang = get_language(args.lang)
+    t = I18N[lang]
+    db = Database()
+    today = datetime.date.today()
+    start = today - datetime.timedelta(days=6)
+    records = db.query_date_range(start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"))
+
+    if not records:
+        print(f"\n{t['no_records_week']}\n")
+        return
+
+    day_totals = {}
+    day_active = {}
+    for i in range(7):
+        d_str = (start + datetime.timedelta(days=i)).strftime("%Y-%m-%d")
+        day_totals[d_str] = 0
+        day_active[d_str] = 0
+
+    for r in records:
+        d = r["start_time"][:10]
+        dur = r["duration_seconds"]
+        if d in day_totals:
+            day_totals[d] += dur
+            if not r["is_locked"]:
+                day_active[d] += dur
+
+    max_active = max(day_active.values()) if day_active else 1
+
+    print(f"\n╔═══════════════════════════════════════════════════════════════╗")
+    print(f"║             📈 {t['week_title'].center(46)} ║")
+    print(f"╚═══════════════════════════════════════════════════════════════╝")
+    for d, secs in day_active.items():
+        ratio = secs / max_active if max_active else 0
+        bar = make_bar(ratio, width=15)
+        print(f"  {d}: [{bar}] \033[1;32m{format_duration_short(secs).rjust(7)}\033[0m (Total {format_duration_short(day_totals[d])})")
+    print("")
+
+
+def cmd_report(args):
+    lang = get_language(args.lang)
+    db = Database()
+    target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
+    records = db.query_day(target_date)
+    md_content = ReportGenerator.generate_markdown(records, target_date, lang=lang)
+
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+        t = I18N[lang]
+        print(t["report_saved"].format(path=out_path))
+    else:
+        print(md_content)
+
+
+def cmd_export(args):
+    lang = get_language(args.lang)
+    t = I18N[lang]
+    db = Database()
+    target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
+    records = db.query_day(target_date)
+    md_content = ReportGenerator.generate_markdown(records, target_date, lang=lang)
+    out_file = REPORTS_DIR / f"{target_date}.md"
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(out_file, "w", encoding="utf-8") as f:
+        f.write(md_content)
+    print(f"✅ {t['report_exported'].format(path=out_file)}")
+
+
+def extract_summary_metrics(records, target_date):
+    total_active = sum(r["duration_seconds"] for r in records if not r["is_locked"])
+    total_locked = sum(r["duration_seconds"] for r in records if r["is_locked"])
+    grand_total = total_active + total_locked
+
+    total_keys = sum((r.get("key_presses") or 0) for r in records if not r["is_locked"])
+    total_mouse_px = sum((r.get("mouse_distance_px") or 0) for r in records if not r["is_locked"])
+
+    active_mins = total_active / 60.0
+    kpm = (total_keys / active_mins) if active_mins > 0 else 0.0
+
+    cat_times = {}
+    app_times = {}
+    hourly_switches = {h: 0 for h in range(24)}
+    switch_count = len(records)
+
+    for r in records:
+        dur = r["duration_seconds"]
+        if not r["is_locked"]:
+            cat_raw = r["category"]
+            cat_times[cat_raw] = cat_times.get(cat_raw, 0) + dur
+            app = r["app_name"]
+            app_times[app] = app_times.get(app, 0) + dur
+
+            try:
+                start_dt = datetime.datetime.fromisoformat(r["start_time"])
+                hourly_switches[start_dt.hour] += 1
+            except Exception:
+                pass
+
+    cat_list = []
+    for cat, dur in sorted(cat_times.items(), key=lambda x: x[1], reverse=True):
+        pct = (dur / total_active * 100.0) if total_active > 0 else 0.0
+        cat_list.append((cat, format_duration(dur), pct))
+
+    app_list = []
+    for app, dur in sorted(app_times.items(), key=lambda x: x[1], reverse=True)[:10]:
+        pct = (dur / total_active * 100.0) if total_active > 0 else 0.0
+        app_list.append((app, format_duration(dur), pct))
+
+    high_switch_hours = sorted(
+        [(h, cnt) for h, cnt in hourly_switches.items() if cnt >= 5],
+        key=lambda x: x[1],
+        reverse=True
+    )[:5]
+
+    return {
+        "date": target_date,
+        "total_duration": format_duration(grand_total),
+        "active_duration": format_duration(total_active),
+        "switch_count": switch_count,
+        "total_keystrokes": total_keys,
+        "avg_kpm": kpm,
+        "mouse_distance": format_distance(total_mouse_px),
+        "categories": cat_list,
+        "top_apps": app_list,
+        "high_switch_hours": high_switch_hours,
+    }
+
+
+def cmd_analyze(args):
+    from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer
+    from outputs import MarkdownReportGenerator, ObsidianVaultSync
+
+    target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
+    db = Database()
+    records = db.query_day(target_date)
+    if not records:
+        print(f"No activity records found for date: {target_date}")
+        return
+
+    summary = extract_summary_metrics(records, target_date)
+    provider = getattr(args, "provider", "ollama") or "ollama"
+    model = getattr(args, "model", None)
+    client_cfg = {}
+    if model:
+        client_cfg["model"] = model
+
+    print(f"🧠 Running Afterimage Cognitive Retrospective ({provider})...")
+    try:
+        client = AIClientFactory.create(provider=provider, config=client_cfg)
+        analyzer = CognitiveAnalyzer(client, PrivacySanitizer())
+        retrospective = analyzer.generate_daily_retrospective(target_date, summary)
+
+        print("\n" + "=" * 60)
+        print(f"Afterimage AI Retrospective: {target_date}")
+        print("=" * 60)
+        print(retrospective)
+        print("=" * 60 + "\n")
+
+        md_gen = MarkdownReportGenerator(REPORTS_DIR)
+        report_file = md_gen.generate_report(target_date, summary, ai_retrospective=retrospective)
+        print(f"📄 Full retrospective report saved to: {report_file}")
+
+        if getattr(args, "sync_obsidian", False):
+            vault_dir = None
+            if CONFIG_FILE.exists():
+                try:
+                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        vault_dir = cfg.get("outputs", {}).get("obsidian_vault_dir")
+                except Exception:
+                    pass
+            if vault_dir:
+                obsidian = ObsidianVaultSync(vault_dir)
+                note = obsidian.sync_daily_note(target_date, retrospective)
+                if note:
+                    print(f"📓 Synced to Obsidian daily note: {note}")
+
+    except Exception as e:
+        print(f"Error during AI analysis: {e}", file=sys.stderr)
+
+
+def cmd_ask(args):
+    from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer
+
+    query = args.query
+    target_date = getattr(args, "date", None) or datetime.datetime.now().strftime("%Y-%m-%d")
+    db = Database()
+    records = db.query_day(target_date)
+
+    if not records:
+        print(f"No telemetry records found for date: {target_date}")
+        return
+
+    context_records = []
+    for r in records[:60]:
+        context_records.append({
+            "time": r["start_time"],
+            "app": r["app_name"],
+            "title": r["window_title"] or "Desktop",
+            "duration": format_duration(r["duration_seconds"]),
+        })
+
+    provider = getattr(args, "provider", "ollama") or "ollama"
+    model = getattr(args, "model", None)
+    client_cfg = {}
+    if model:
+        client_cfg["model"] = model
+
+    try:
+        client = AIClientFactory.create(provider=provider, config=client_cfg)
+        analyzer = CognitiveAnalyzer(client, PrivacySanitizer())
+        answer = analyzer.answer_query(context_records, query)
+        print(f"\n🧠 Afterimage Answer:\n{answer}\n")
+    except Exception as e:
+        print(f"Error executing natural language query: {e}", file=sys.stderr)
+
+
+def cmd_status(args):
+    lang = get_language(args.lang)
+    t = I18N[lang]
+    res = subprocess.run(["systemctl", "--user", "is-active", "afterimage.service"], capture_output=True, text=True)
+    state = res.stdout.strip()
+    color = "\033[1;32m" if state == "active" else "\033[1;31m"
+    print(f"\n{t['service_status']}: {color}{state.upper()}\033[0m")
+
+    db = Database()
+    conn = db.get_conn()
+    try:
+        cur = conn.execute("SELECT * FROM window_activities ORDER BY id DESC LIMIT 1;")
+        row = cur.fetchone()
+        if row:
+            cat_display, icon = get_category_display(row['category'], lang)
+            print(f"{t['latest_captured']}: {row['end_time']}")
+            print(f"{t['current_app']}: {row['app_name']} ({icon} {cat_display})")
+            print(f"{t['current_window']}: {row['window_title']}")
+            print(f"{t['current_duration']}: {format_duration(row['duration_seconds'], lang)}\n")
+        else:
+            print(f"{t['no_records_db']}\n")
+    finally:
+        conn.close()
+
+
+def cmd_lang(args):
+    rules = load_rules()
+    current_cfg = rules.get("language", "auto")
+    effective_lang = get_language()
+
+    if not args.target:
+        print(f"\nCurrent language setting: \033[1;36m{current_cfg}\033[0m (Effective: \033[1;32m{effective_lang}\033[0m)")
+        print("Available languages: en (English), zh (Simplified Chinese), auto (Follow system locale)")
+        print("Usage:")
+        print("  afterimage lang en    - Set language to English")
+        print("  afterimage lang zh    - Set language to Simplified Chinese")
+        print("  afterimage lang auto  - Auto-detect from system locale\n")
+        return
+
+    target = args.target.lower()
+    if target not in ["en", "zh", "auto"]:
+        print(f"Error: Unsupported language '{target}'. Choose from 'en', 'zh', or 'auto'.")
+        sys.exit(1)
+
+    rules["language"] = target
+    save_rules(rules)
+    new_effective = get_language()
+    t = I18N[new_effective]
+    print(f"✅ {t['lang_switched'].format(lang=f'{target} ({new_effective})')}")
+
+
+def cmd_service(args):
+    action = args.action
+    if action == "install":
+        SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
+        service_content = f"""[Unit]
+Description=Afterimage Desktop Cognitive Telemetry & AI Retrospective Daemon
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/afterimage daemon
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target
+"""
+        with open(SERVICE_FILE, "w", encoding="utf-8") as f:
+            f.write(service_content)
+        subprocess.run(["systemctl", "--user", "daemon-reload"])
+        subprocess.run(["systemctl", "--user", "enable", "--now", "afterimage.service"])
+        t = I18N[get_language()]
+        print(f"✅ {t['service_installed']}")
+    elif action in ["start", "stop", "restart", "status", "enable", "disable"]:
+        subprocess.run(["systemctl", "--user", action, "afterimage.service"])
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="afterimage",
+        description="KDE Plasma 6 Wayland Desktop Cognitive Telemetry & AI Retrospective Engine"
+    )
+    subparsers = parser.add_subparsers(dest="subcommand", help="Subcommand")
+
+    # daemon
+    subparsers.add_parser("daemon", help="Start the background tracking daemon")
+
+    # today
+    parser_today = subparsers.add_parser("today", help="Show today's screen time report")
+    parser_today.add_argument("--date", help="Specify date (YYYY-MM-DD)")
+    parser_today.add_argument("--lang", choices=["en", "zh"], help="Override display language (en/zh)")
+
+    # week
+    parser_week = subparsers.add_parser("week", help="Show past 7 days trend")
+    parser_week.add_argument("--lang", choices=["en", "zh"], help="Override display language (en/zh)")
+
+    # report
+    parser_rep = subparsers.add_parser("report", help="Generate Markdown report for date")
+    parser_rep.add_argument("--date", help="Specify date (YYYY-MM-DD)")
+    parser_rep.add_argument("--out", help="Output file path")
+    parser_rep.add_argument("--lang", choices=["en", "zh"], help="Report language (en/zh)")
+
+    # export
+    parser_exp = subparsers.add_parser("export", help="Export report to ~/Documents/AfterimageReports/")
+    parser_exp.add_argument("--date", help="Specify date (YYYY-MM-DD)")
+    parser_exp.add_argument("--lang", choices=["en", "zh"], help="Report language (en/zh)")
+
+    # analyze (AI Retrospective)
+    parser_analyze = subparsers.add_parser("analyze", help="Run AI cognitive retrospective analysis")
+    parser_analyze.add_argument("--date", help="Specify date (YYYY-MM-DD)")
+    parser_analyze.add_argument("--provider", default="ollama", choices=["ollama", "gemini", "deepseek", "openai"], help="AI provider (default: ollama)")
+    parser_analyze.add_argument("--model", help="AI model name override")
+    parser_analyze.add_argument("--sync-obsidian", action="store_true", help="Sync retrospective to Obsidian daily note")
+
+    # ask (AI Natural Language Query)
+    parser_ask = subparsers.add_parser("ask", help="Query telemetry history with natural language")
+    parser_ask.add_argument("query", help="Question to ask AI regarding work history")
+    parser_ask.add_argument("--date", help="Specify date (YYYY-MM-DD)")
+    parser_ask.add_argument("--provider", default="ollama", choices=["ollama", "gemini", "deepseek", "openai"], help="AI provider (default: ollama)")
+    parser_ask.add_argument("--model", help="AI model name override")
+
+    # status
+    parser_status = subparsers.add_parser("status", help="Show daemon status & active window")
+    parser_status.add_argument("--lang", choices=["en", "zh"], help="Display language (en/zh)")
+
+    # lang
+    parser_lang = subparsers.add_parser("lang", help="Get or set display language (en/zh/auto)")
+    parser_lang.add_argument("target", nargs="?", choices=["en", "zh", "auto"], help="Set language to 'en', 'zh', or 'auto'")
+
+    # service
+    parser_srv = subparsers.add_parser("service", help="Manage systemd user service")
+    parser_srv.add_argument("action", choices=["install", "start", "stop", "restart", "status", "enable", "disable"])
+
+    args = parser.parse_args()
+
+    if args.subcommand == "daemon":
+        daemon = Daemon()
+        daemon.run()
+    elif args.subcommand == "today":
+        cmd_today(args)
+    elif args.subcommand == "week":
+        cmd_week(args)
+    elif args.subcommand == "report":
+        cmd_report(args)
+    elif args.subcommand == "export":
+        cmd_export(args)
+    elif args.subcommand == "analyze":
+        cmd_analyze(args)
+    elif args.subcommand == "ask":
+        cmd_ask(args)
+    elif args.subcommand == "status":
+        cmd_status(args)
+    elif args.subcommand == "lang":
+        cmd_lang(args)
+    elif args.subcommand == "service":
+        cmd_service(args)
+    else:
+        cmd_today(args)
+
+
+if __name__ == "__main__":
+    main()

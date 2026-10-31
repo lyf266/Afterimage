@@ -1,0 +1,60 @@
+# ==============================================================================
+# Privacy & Sensitive Runtime Telemetry (NEVER COMMIT)
+# ==============================================================================
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+reports/
+TimeReports/
+AfterimageReports/
+output/
+*.log
+
+# ==============================================================================
+# AI Credentials, Model Checkpoints & Embedding Caches
+# ==============================================================================
+.env
+.env.*
+!.env.example
+api_keys.json
+credentials.json
+ai_cache/
+vector_store/
+chroma_db/
+embeddings/
+models/
+*.bin
+*.gguf
+*.safetensors
+
+# ==============================================================================
+# Python Runtime & Build Artifacts
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ==============================================================================
+# System & Editor Artifacts
+# ==============================================================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

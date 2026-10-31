@@ -1,0 +1,14 @@
+[Unit]
+Description=Afterimage Desktop Cognitive Telemetry & AI Retrospective Daemon
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/afterimage daemon
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,43 @@
+{
+  "storage": {
+    "db_path": "~/.local/share/afterimage/afterimage.db",
+    "fallback_db_path": "~/.local/share/timetracker/timetracker.db"
+  },
+  "ai": {
+    "default_provider": "ollama",
+    "providers": {
+      "ollama": {
+        "base_url": "http://localhost:11434",
+        "model": "qwen2.5:7b",
+        "temperature": 0.3
+      },
+      "gemini": {
+        "model": "gemini-2.5-flash",
+        "api_key_env": "GEMINI_API_KEY",
+        "temperature": 0.3
+      },
+      "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "temperature": 0.3
+      }
+    }
+  },
+  "privacy": {
+    "sanitize_window_titles": true,
+    "custom_redact_words": [],
+    "strip_regex_patterns": [
+      "(?i)bearer\\s+[a-z0-9_\\-\\.]+",
+      "ghp_[a-zA-Z0-9]{20,}",
+      "sk-[a-zA-Z0-9]{20,}",
+      "(?i)password[=:]\\s*[^\\s&]+",
+      "/home/[a-zA-Z0-9_\\-]+/"
+    ]
+  },
+  "outputs": {
+    "reports_dir": "~/Documents/AfterimageReports",
+    "obsidian_vault_dir": "",
+    "obsidian_daily_note_format": "YYYY-MM-DD"
+  }
+}
