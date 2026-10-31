@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [<u><font color="#0969da">English</font></u>](README.md) | 简体中文
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20KDE%20Plasma%206%20Wayland-brightgreen.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)]()
 [![AI Analysis](https://img.shields.io/badge/AI-Local%20Ollama%20%7C%20Gemini%20%7C%20DeepSeek-orange.svg)]()
@@ -149,4 +149,4 @@ afterimage report --date today --output ~/Documents/AfterimageReports/
 
 ## 📄 开源许可证
 
-本项目基于 MIT 许可证开源，详情参阅 [LICENSE](LICENSE)。
+本项目基于 Apache License 2.0 许可证开源，详情参阅 [LICENSE](LICENSE)。
