@@ -135,7 +135,7 @@ Desktop event tracking systems often face SQLite storage growth and database loc
 Afterimage features a rich, aesthetic terminal dashboard powered by `rich`:
 
 <p align="center">
-  <img src="assets/terminal_demo.png" alt="Afterimage Terminal Cognitive Telemetry & Flow Dashboard Demo" width="850">
+  <img src="assets/terminal_demo.gif" alt="Afterimage Live Terminal Demo (Status, Summary, AI Retrospective & Markdown Export)" width="850">
 </p>
 
 ```text
@@ -174,17 +174,18 @@ Afterimage is built with Test-Driven Development (TDD) and stringent quality gat
 PYTHONPATH=scripts:src:. python3 -m unittest discover tests/
 ```
 
-**Test Execution Output (63 passing tests):**
+**Test Execution Output (65 passing tests):**
 ```text
-Ran 63 tests in 0.052s
+Ran 65 tests in 0.072s
 
 OK
 ```
 
 Key verification modules:
+- `test_dashboard.py`: Bilingual (`en`/`zh`) terminal dashboard cards, session tables, and AI panel rendering.
 - `test_db_manager.py`: Read-only snapshot isolation and zero database writes verification.
 - `test_clustering.py`: Multi-window session aggregation, fragmentation index, and flow streak metrics.
-- `test_ai_modules.py`: Token & credential privacy scrubbing and AI client factory.
+- `test_ai_modules.py`: Token & credential privacy scrubbing, bilingual prompt catalog, and AI client factory.
 - `test_exporter.py`: Daily note generation and multi-channel sinks (Obsidian / Telegram).
 - `test_adversarial_cases.py`: Missing DB handling, mismatched schema detection, offline Ollama alerts, 45s cloud API timeout guard, and uninstaller safety.
 
