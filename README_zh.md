@@ -134,6 +134,10 @@ afterimage report --date today --output ~/Documents/AfterimageReports/
 
 Afterimage 终端具备沉浸式的 Rich 交互看板，直观可视化您的时间轨迹与心流深潜状态：
 
+<p align="center">
+  <img src="assets/terminal_demo.png" alt="Afterimage 终端认知遥测与心流看板演示" width="850">
+</p>
+
 ```text
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                  ✨ Afterimage (残影) · 认知复盘与效能审计                   │

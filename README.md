@@ -132,6 +132,10 @@ Desktop event tracking systems often suffer from runaway SQLite storage bloat (h
 
 Afterimage features a rich, aesthetic terminal dashboard powered by `rich`:
 
+<p align="center">
+  <img src="assets/terminal_demo.png" alt="Afterimage Terminal Cognitive Telemetry & Flow Dashboard Demo" width="850">
+</p>
+
 ```text
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                  ✨ Afterimage (残影) · 认知复盘与效能审计                   │
