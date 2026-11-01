@@ -26,17 +26,39 @@ class MultiChannelExporter:
 
     @classmethod
     def get_default_daily_dir(cls) -> Path:
+        """
+        Determines the output directory for daily retrospective reports.
+        Priority:
+        1. Explicit environment variable: AFTERIMAGE_DAILY_DIR
+        2. User's personal directory if it already exists: ~/文档/人生出路与战略抉择/每周复盘/每日总结
+        3. Standard software reports directory: ~/.local/share/afterimage/reports (or ~/Documents/AfterimageReports)
+        """
         env_val = os.environ.get("AFTERIMAGE_DAILY_DIR")
         if env_val:
             return Path(env_val).expanduser()
-        return Path.home() / "文档" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+            
+        custom_target = Path.home() / "文档" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+        if custom_target.exists():
+            return custom_target
+
+        # Standard default location in user's XDG data directory / documents
+        standard_default = Path.home() / ".local" / "share" / "afterimage" / "reports"
+        return standard_default
 
     @classmethod
-    def get_default_obsidian_dir(cls) -> Path:
+    def get_default_obsidian_dir(cls) -> Optional[Path]:
+        """
+        Determines Obsidian vault mirror destination if configured or present.
+        Returns None if user does not have Obsidian vault configured.
+        """
         env_val = os.environ.get("AFTERIMAGE_OBSIDIAN_DIR")
         if env_val:
             return Path(env_val).expanduser()
-        return Path.home() / "obsidian-vault" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+
+        custom_obsidian = Path.home() / "obsidian-vault" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+        if custom_obsidian.exists():
+            return custom_obsidian
+        return None
 
     @classmethod
     def get_default_tg_bin(cls) -> Path:
@@ -55,7 +77,8 @@ class MultiChannelExporter:
         tg_bin: Optional[Path] = None,
     ):
         self.daily_notes_dir = (daily_notes_dir or self.get_default_daily_dir()).expanduser()
-        self.obsidian_dir = (obsidian_dir or self.get_default_obsidian_dir()).expanduser()
+        obs_dir = obsidian_dir or self.get_default_obsidian_dir()
+        self.obsidian_dir = obs_dir.expanduser() if obs_dir else None
         self.tg_bin = (tg_bin or self.get_default_tg_bin()).expanduser()
 
     def export_daily_note(
@@ -80,12 +103,13 @@ class MultiChannelExporter:
             f.write(full_content)
 
         # Mirror to Obsidian vault if available
-        try:
-            self.obsidian_dir.mkdir(parents=True, exist_ok=True)
-            obsidian_path = self.obsidian_dir / f"{date_str}.md"
-            shutil.copy2(note_path, obsidian_path)
-        except Exception:
-            pass
+        if self.obsidian_dir:
+            try:
+                self.obsidian_dir.mkdir(parents=True, exist_ok=True)
+                obsidian_path = self.obsidian_dir / f"{date_str}.md"
+                shutil.copy2(note_path, obsidian_path)
+            except Exception:
+                pass
 
         return note_path
 
