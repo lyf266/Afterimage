@@ -18,7 +18,7 @@
 ```mermaid
 flowchart TD
     subgraph Capture["1. Wayland & Hardware Telemetry (Low Impact)"]
-        KWin["KWin 6 Wayland Script<br/>(Event-Driven, Zero Polling)"]
+        KWin["KWin 6 Wayland Script<br/>(Event-Driven, 5s Heartbeat, Zero Screenshots)"]
         Input["Linux evdev Input Tracker<br/>(Blind Key Cadence & Mouse Distance)"]
         Dbus["D-Bus ScreenSaver / Idle State"]
     end
@@ -31,7 +31,7 @@ flowchart TD
 
     subgraph AI["3. Autonomous AI Retrospective Engine"]
         Engine["Multi-Backend LLM Interface<br/>(Local Ollama / Gemini / DeepSeek / Claude)"]
-        Cognitive["Cognitive Metrics:<br/>- Deep Work vs Shallow Work<br/>- Attention Residue & Switch Cost<br/>- Fatigue & Burnout Indicators"]
+        Cognitive["Cognitive Metrics:<br/>- Deep Work vs Shallow Work<br/>- Attention Residue & Switch Cost<br/>- Behavioral Fatigue Heuristics*"]
     end
 
     subgraph Output["4. Structured Knowledge Sinks"]
@@ -50,6 +50,8 @@ flowchart TD
     Cognitive --> CLI
 ```
 
+> **\*Notice**: Fatigue and focus indicators in Afterimage are strictly **behavioral heuristics** derived from input cadence and switching frequency. They are **not** medical, psychological, or physiological measurements.
+
 ### 1. Zero-Disruption Wayland Telemetry Backbone
 - **KWin Plasma 6 Native Driver**: Directly hooks into KWin's event loop via `org.kde.KWin` and `org.freedesktop.ScreenSaver` D-Bus interfaces. Eliminates inefficient periodic screenshot captures and screen-polling loops.
 - **Hardware Input Activity**: Pure Python `evdev` listening for keyboard typing velocity (KPM) and mouse movement distance (meters) in a strictly irreversible, privacy-preserving manner (no keystrokes or coordinates are ever captured or stored).
@@ -62,7 +64,7 @@ flowchart TD
 ### 3. AI Cognitive Analysis
 - **Deep Work vs. Shallow Work**: Classifies continuous task blocks based on cognitive intensity and application context.
 - **Attention Residue & Switch Penalty**: Quantifies context-switching frequency and identifies distraction hotspots throughout the workday.
-- **Cognitive Load & Flow State Detection**: Correlates typing cadence, window duration, and task switching into an actionable flow index.
+- **Cognitive Load & Heuristic Focus Estimation**: Correlates typing cadence, window duration, and task switching into an actionable focus index.
 
 ### 4. Automated Knowledge Sink Outputs
 - **Daily / Weekly Executive Briefings**: Markdown reports summarizing primary achievements, focus bottlenecks, distraction spikes, and tactical recommendations.
@@ -110,11 +112,11 @@ afterimage report --date today --output ~/Documents/AfterimageReports/
 
 ---
 
-## 🛡️ Database Explosion Mitigation (Zero Bloat Invariant)
+## 🛡️ Database Growth Mitigation
 
-Desktop event tracking systems often suffer from runaway SQLite storage bloat (hundreds of MBs to multiple GBs) and database lock contention that can freeze desktop sessions. Afterimage mitigates this via a 4-tier storage architecture:
+Desktop event tracking systems often face SQLite storage growth and database lock contention that can impact desktop responsiveness. Afterimage mitigates this via a 4-tier storage architecture:
 
-1. **Homomorphic Session Chunking**:
+1. **Buffered Session Aggregation**:
    - The daemon does not perform discrete per-second SQLite inserts. Active windows, typing keystrokes, and mouse vectors are accumulated in an in-memory buffer.
    - Batch atomic writes occur only upon window focus transitions, lock events, or minute boundaries, cutting raw I/O transactions by **98.5%**.
 2. **SQLite WAL Mode & Regular Checkpoint TRUNCATE**:
