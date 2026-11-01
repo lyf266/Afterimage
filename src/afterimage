@@ -1694,11 +1694,31 @@ def cmd_analyze(args):
     elif provider == "gemini":
         client_cfg["model"] = "gemini-2.5-flash"
 
+    # Privacy Notice regarding Cloud AI vs Local AI
+    if provider != "ollama":
+        dashboard.console.print(
+            "[bold yellow]⚠️ 隐私与安全提示 (Cloud AI Notice):[/bold yellow]\n"
+            "[dim]• 当前正使用云端大模型进行认知复盘分析，活动聚合数据经本地脱敏后仍需传输至第三方模型服务商。\n"
+            "• 规则脱敏无法 100% 保证识别所有形式的敏感专有名词与私密内容。\n"
+            "• 您可在 ~/.config/afterimage/config.json 的 privacy.custom_redact_words 中配置专属敏感词，\n"
+            "  或使用 --provider ollama 完全在本地离线推理。[/dim]\n"
+        )
+
+    # Load custom sensitive words from config if available
+    custom_words = []
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                custom_words = cfg.get("privacy", {}).get("custom_redact_words", [])
+        except Exception:
+            pass
+
     # 3. AI Cognitive Synthesis
     dashboard.console.print(f"[dim]🧠 正在调用 AI 认知分析引擎 ({provider}:{client_cfg.get('model', 'default')})...[/dim]")
     try:
         client = AIClientFactory.create(provider=provider, config=client_cfg)
-        analyzer = CognitiveAnalyzer(client, PrivacySanitizer())
+        analyzer = CognitiveAnalyzer(client, PrivacySanitizer(custom_words=custom_words))
         retrospective = analyzer.generate_retrospective_from_metrics(metrics, period_str=period_str)
         dashboard.render_ai_retrospective(retrospective)
 

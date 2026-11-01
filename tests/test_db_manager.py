@@ -15,8 +15,8 @@ class TestSnapshotDBManager(unittest.TestCase):
         # Create a mock production DB
         con = sqlite3.connect(self.prod_db_path)
         cur = con.cursor()
-        cur.execute("CREATE TABLE activities (id INTEGER PRIMARY KEY, app TEXT);")
-        cur.execute("INSERT INTO activities (app) VALUES ('ghostty');")
+        cur.execute("CREATE TABLE window_activities (id INTEGER PRIMARY KEY, app TEXT);")
+        cur.execute("INSERT INTO window_activities (app) VALUES ('ghostty');")
         con.commit()
         con.close()
         
@@ -31,13 +31,13 @@ class TestSnapshotDBManager(unittest.TestCase):
             self.assertTrue(Path(manager.snapshot_path).exists())
             con = manager.get_connection()
             cur = con.cursor()
-            rows = cur.execute("SELECT app FROM activities;").fetchall()
+            rows = cur.execute("SELECT app FROM window_activities;").fetchall()
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["app"], "ghostty")
             
             # Verify read-only restriction: attempting write should fail
             with self.assertRaises(sqlite3.OperationalError):
-                cur.execute("INSERT INTO activities (app) VALUES ('malicious_write');")
+                cur.execute("INSERT INTO window_activities (app) VALUES ('malicious_write');")
             con.close()
 
         # Check original production file was never touched
