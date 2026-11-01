@@ -138,7 +138,7 @@ afterimage report --date today --output ~/Documents/AfterimageReports/
 Afterimage 终端具备沉浸式的 Rich 交互看板，直观可视化您的时间轨迹与心流深潜状态：
 
 <p align="center">
-  <img src="assets/terminal_demo.png" alt="Afterimage 终端认知遥测与心流看板演示" width="850">
+  <img src="assets/terminal_demo.gif" alt="Afterimage 终端状态查看、今日聚类、AI 复盘与报告导出完整演示" width="850">
 </p>
 
 ```text
@@ -178,17 +178,18 @@ Afterimage 终端具备沉浸式的 Rich 交互看板，直观可视化您的时
 PYTHONPATH=scripts:src:. python3 -m unittest discover tests/
 ```
 
-**测试运行实测证据（63 项单元测试 100% 通过）：**
+**测试运行实测证据（65 项单元测试 100% 通过）：**
 ```text
-Ran 63 tests in 0.052s
+Ran 65 tests in 0.072s
 
 OK
 ```
 
 覆盖的核心验证清单：
+- `test_dashboard.py`: 终端双语看板（中/英文）、指标卡、会话聚类表格与 AI 面板渲染校验。
 - `test_db_manager.py`: 生产数据库零写入保证（快照只读隔离校验）。
 - `test_clustering.py`: 连续心流聚合、打断碎裂识别与注意力残留计算。
-- `test_ai_modules.py`: 敏感凭据（Token/密码/个人路径）脱敏过滤器与大模型客户端工厂。
+- `test_ai_modules.py`: 敏感凭据（Token/密码/个人路径）脱敏过滤器、双语 PromptCatalog 与大模型客户端工厂。
 - `test_exporter.py`: 每日总结自动沉淀与 Obsidian/Telegram 派发。
 - `test_adversarial_cases.py`: 极端用例（缺失 DB 优雅引导、数据表结构不匹配拦截、本地 Ollama 离线告警、云端 API 45 秒硬超时防挂起、卸载脚本绝对安全）。
 
