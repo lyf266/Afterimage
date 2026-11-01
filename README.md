@@ -9,7 +9,7 @@
 
 **Afterimage** is a native Linux (KDE Plasma 6 Wayland) desktop cognitive telemetry and autonomous AI retrospective synthesis engine.
 
-Built upon the zero-dependency, low-overhead event tracking foundation of `desktop-timetracker`, **Afterimage** bridges the gap between raw window ticks and actionable personal cognitive insights. It captures the subtle "afterimages" of daily digital workflows—window focus transitions, typing cadence, mouse energy vectors, and task fragmentation—and transforms them via local or cloud LLMs into structured retrospectives, deep-work metrics, and automated knowledge sink updates.
+**Afterimage** bridges the gap between raw window ticks and actionable personal cognitive insights. It captures the subtle "afterimages" of daily digital workflows—window focus transitions, typing cadence, mouse energy vectors, and task fragmentation—and transforms them via local or cloud LLMs into structured retrospectives, deep-work metrics, and automated knowledge sink updates.
 
 ---
 
@@ -117,8 +117,7 @@ Configuration is located at `~/.config/afterimage/config.json`:
 ```json
 {
   "storage": {
-    "db_path": "~/.local/share/afterimage/afterimage.db",
-    "fallback_db_path": "~/.local/share/timetracker/timetracker.db"
+    "db_path": "~/.local/share/afterimage/afterimage.db"
   },
   "ai": {
     "provider": "ollama",

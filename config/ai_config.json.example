@@ -1,7 +1,6 @@
 {
   "storage": {
-    "db_path": "~/.local/share/afterimage/afterimage.db",
-    "fallback_db_path": "~/.local/share/timetracker/timetracker.db"
+    "db_path": "~/.local/share/afterimage/afterimage.db"
   },
   "ai": {
     "default_provider": "ollama",

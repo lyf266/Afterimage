@@ -1,6 +1,6 @@
 """
 Database Snapshot Manager.
-Ensures zero-touch read-only operation over production timetracker / afterimage databases.
+Ensures zero-touch read-only operation over Afterimage production telemetry database.
 """
 
 import os
@@ -47,8 +47,8 @@ class SnapshotDBManager:
         if not self.original_path or not self.original_path.exists():
             raise FileNotFoundError(
                 "❌ 数据库未找到 (Database not found).\n"
-                "提示: 请确保已运行 desktop-timetracker 或 afterimage 守护进程生成初始数据。\n"
-                "检测路径: ~/.local/share/afterimage/afterimage.db 或 ~/.local/share/timetracker/timetracker.db"
+                "提示: 请确保已运行 afterimage 守护进程生成初始数据。\n"
+                "检测路径: ~/.local/share/afterimage/afterimage.db"
             )
 
         self._temp_dir = tempfile.TemporaryDirectory(prefix="afterimage_snapshot_")
