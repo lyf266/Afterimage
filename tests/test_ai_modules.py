@@ -41,20 +41,28 @@ class TestPrivacySanitizer(unittest.TestCase):
 class TestPromptCatalog(unittest.TestCase):
     def test_daily_prompt_format(self):
         prompt = PromptCatalog.DAILY_RETROSPECTIVE_USER.format(
-            date="2026-10-31",
-            total_duration="6h 30m",
-            active_duration="5h 15m",
-            switch_count=42,
-            total_keystrokes=12500,
-            avg_kpm="45.2",
-            mouse_distance="350.5 m",
-            category_breakdown="- **Dev**: 4h (61.5%)",
-            top_applications="- Cursor: 3h (46.2%)",
-            fragile_windows="- Hour 14:00: 12 switches",
+            period_str="2026-10-31",
+            total_duration_hours=6.5,
+            total_duration_mins=390.0,
+            active_hours=5.25,
+            active_mins=315.0,
+            active_ratio=80.7,
+            locked_mins=15.0,
+            total_keys=12500,
+            total_clicks=1500,
+            total_meters=350.5,
+            longest_flow_str="72 分钟",
+            deep_work_str="5.2 小时",
+            fragmentation_str="极低",
+            frag_count=2,
+            energy_eff_pct=85,
+            output_energy_ratio=0.8,
+            session_summary="1. [Orca] 10:00~11:12",
+            deep_work_hours=5.2,
         )
         self.assertIn("2026-10-31", prompt)
-        self.assertIn("6h 30m", prompt)
-        self.assertIn("Cursor", prompt)
+        self.assertIn("12,500", prompt)
+        self.assertIn("Orca", prompt)
 
 
 class TestAIClientFactory(unittest.TestCase):
