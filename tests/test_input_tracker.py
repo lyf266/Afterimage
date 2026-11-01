@@ -23,9 +23,9 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Dynamically import extensionless executable src/desktop-timetracker
-SRC_FILE = Path(__file__).resolve().parent.parent / "src" / "desktop-timetracker"
-loader = SourceFileLoader("desktop_timetracker", str(SRC_FILE))
+# Dynamically import extensionless executable src/afterimage
+SRC_FILE = Path(__file__).resolve().parent.parent / "src" / "afterimage"
+loader = SourceFileLoader("afterimage", str(SRC_FILE))
 dt = loader.load_module()
 
 
