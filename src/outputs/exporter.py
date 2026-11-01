@@ -3,8 +3,8 @@
 """
 Multi-Channel Exporter and Telegram Dispatcher for Afterimage.
 Handles sync to:
-1. Local Markdown Daily Notes: /home/f1are/文档/人生出路与战略抉择/每周复盘/每日总结/YYYY-MM-DD.md
-2. Obsidian Vault: /home/f1are/obsidian-vault/人生出路与战略抉择/每周复盘/每日总结/YYYY-MM-DD.md
+1. Local Markdown Daily Notes: ~/文档/人生出路与战略抉择/每周复盘/每日总结/YYYY-MM-DD.md
+2. Obsidian Vault: ~/obsidian-vault/人生出路与战略抉择/每周复盘/每日总结/YYYY-MM-DD.md
 3. Telegram Push via native tg CLI
 """
 
@@ -21,11 +21,32 @@ from ai.clustering import FlowMetrics
 class MultiChannelExporter:
     """
     Exports daily cognitive retrospectives to Markdown daily notes, Obsidian vault, and Telegram.
+    Uses generic user home and environment variables to avoid leaking specific personal paths.
     """
 
-    DEFAULT_DAILY_DIR = Path("/home/f1are/文档/人生出路与战略抉择/每周复盘/每日总结")
-    DEFAULT_OBSIDIAN_DIR = Path("/home/f1are/obsidian-vault/人生出路与战略抉择/每周复盘/每日总结")
-    TG_BIN = Path("/home/f1are/.local/bin/tg")
+    @classmethod
+    def get_default_daily_dir(cls) -> Path:
+        env_val = os.environ.get("AFTERIMAGE_DAILY_DIR")
+        if env_val:
+            return Path(env_val).expanduser()
+        return Path.home() / "文档" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+
+    @classmethod
+    def get_default_obsidian_dir(cls) -> Path:
+        env_val = os.environ.get("AFTERIMAGE_OBSIDIAN_DIR")
+        if env_val:
+            return Path(env_val).expanduser()
+        return Path.home() / "obsidian-vault" / "人生出路与战略抉择" / "每周复盘" / "每日总结"
+
+    @classmethod
+    def get_default_tg_bin(cls) -> Path:
+        env_val = os.environ.get("TG_BIN")
+        if env_val:
+            return Path(env_val).expanduser()
+        which_tg = shutil.which("tg")
+        if which_tg:
+            return Path(which_tg)
+        return Path.home() / ".local" / "bin" / "tg"
 
     def __init__(
         self,
@@ -33,9 +54,9 @@ class MultiChannelExporter:
         obsidian_dir: Optional[Path] = None,
         tg_bin: Optional[Path] = None,
     ):
-        self.daily_notes_dir = (daily_notes_dir or self.DEFAULT_DAILY_DIR).expanduser()
-        self.obsidian_dir = (obsidian_dir or self.DEFAULT_OBSIDIAN_DIR).expanduser()
-        self.tg_bin = (tg_bin or self.TG_BIN).expanduser()
+        self.daily_notes_dir = (daily_notes_dir or self.get_default_daily_dir()).expanduser()
+        self.obsidian_dir = (obsidian_dir or self.get_default_obsidian_dir()).expanduser()
+        self.tg_bin = (tg_bin or self.get_default_tg_bin()).expanduser()
 
     def export_daily_note(
         self,
