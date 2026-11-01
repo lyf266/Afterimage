@@ -14,6 +14,35 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 
+def _get_urllib_opener():
+    """
+    Builds a urllib opener respecting system proxy environment variables or
+    local proxy ports (such as v2rayA / clash on 127.0.0.1:20171).
+    """
+    http_proxy = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY") or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+    if not http_proxy:
+        # Check standard local proxy port
+        candidates = ["http://127.0.0.1:20171", "http://127.0.0.1:7890", "http://127.0.0.1:10808"]
+        for p in candidates:
+            try:
+                import socket
+                host, port = p.replace("http://", "").split(":")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.1)
+                res = sock.connect_ex((host, int(port)))
+                sock.close()
+                if res == 0:
+                    http_proxy = p
+                    break
+            except Exception:
+                pass
+
+    if http_proxy:
+        proxy_handler = urllib.request.ProxyHandler({"http": http_proxy, "https": http_proxy})
+        return urllib.request.build_opener(proxy_handler)
+    return urllib.request.build_opener()
+
+
 class BaseAIClient(ABC):
     @abstractmethod
     def generate(self, system_prompt: str, user_prompt: str) -> str:
@@ -89,7 +118,8 @@ class GeminiClient(BaseAIClient):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            opener = _get_urllib_opener()
+            with opener.open(req, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 candidates = data.get("candidates", [])
                 if candidates:
@@ -141,7 +171,8 @@ class OpenAICompatibleClient(BaseAIClient):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            opener = _get_urllib_opener()
+            with opener.open(req, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 choices = data.get("choices", [])
                 if choices:
