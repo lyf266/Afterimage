@@ -1617,65 +1617,130 @@ def extract_summary_metrics(records, target_date):
 
 
 def cmd_analyze(args):
-    from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer
-    from outputs import MarkdownReportGenerator, ObsidianVaultSync
+    from data import SnapshotDBManager, load_env_file
+    from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer, SessionClusterer, TerminalDashboard
+    from outputs import MultiChannelExporter
+
+    # Securely load environment without plain text in repository
+    load_env_file()
+
+    dashboard = TerminalDashboard()
+    dashboard.render_header()
 
     target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
-    db = Database()
-    records = db.query_day(target_date)
-    if not records:
-        print(f"No activity records found for date: {target_date}")
+    
+    # Check cycle mode: if --cycle-2pm is specified, use 14:00~next day 14:00
+    use_2pm_cycle = getattr(args, "cycle_2pm", True)
+    
+    # Always use read-only SnapshotDBManager to protect production data
+    db_mgr = SnapshotDBManager()
+    with db_mgr:
+        con = db_mgr.get_connection()
+        cur = con.cursor()
+        
+        if use_2pm_cycle:
+            # e.g., target_date 14:00 to target_date+1 14:00
+            try:
+                base_dt = datetime.datetime.strptime(target_date, "%Y-%m-%d")
+            except ValueError:
+                base_dt = datetime.datetime.now()
+            start_ts = (base_dt - datetime.timedelta(days=1)).strftime("%Y-%m-%d 14:00:00")
+            end_ts = base_dt.strftime("%Y-%m-%d 14:00:00")
+            period_str = f"{start_ts} ~ {end_ts} (GMT-7)"
+            query = """
+                SELECT * FROM window_activities 
+                WHERE start_time >= ? AND start_time < ?
+                ORDER BY start_time ASC
+            """
+            rows = cur.execute(query, (start_ts, end_ts)).fetchall()
+        else:
+            period_str = f"{target_date} (全天)"
+            query = """
+                SELECT * FROM window_activities 
+                WHERE date(start_time) = ?
+                ORDER BY start_time ASC
+            """
+            rows = cur.execute(query, (target_date,)).fetchall()
+
+        raw_records = [dict(r) for r in rows]
+
+    if not raw_records:
+        dashboard.console.print(f"[yellow]⚠️ 未查询到周期 {period_str} 内的活动记录。[/yellow]")
         return
 
-    summary = extract_summary_metrics(records, target_date)
-    provider = getattr(args, "provider", "ollama") or "ollama"
+    # 1. Cluster into work sessions and calculate cognitive flow metrics
+    clusterer = SessionClusterer()
+    sessions = clusterer.cluster(raw_records)
+    metrics = clusterer.calculate_flow_metrics(sessions)
+
+    # 2. Render Rich metrics cards and session timeline
+    dashboard.render_metrics_cards(metrics)
+    dashboard.render_sessions_table(sessions, limit=12)
+
+    # Determine AI provider: fallback intelligently to available API keys
+    provider = getattr(args, "provider", None)
+    if not provider or provider == "ollama":
+        if os.environ.get("GEMINI_API_KEY"):
+            provider = "gemini"
+        elif os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY"):
+            provider = "deepseek"
+        else:
+            provider = "ollama"
+
     model = getattr(args, "model", None)
     client_cfg = {}
     if model:
         client_cfg["model"] = model
+    elif provider == "gemini":
+        client_cfg["model"] = "gemini-2.5-flash"
 
-    print(f"🧠 Running Afterimage Cognitive Retrospective ({provider})...")
+    # 3. AI Cognitive Synthesis
+    dashboard.console.print(f"[dim]🧠 正在调用 AI 认知分析引擎 ({provider}:{client_cfg.get('model', 'default')})...[/dim]")
     try:
         client = AIClientFactory.create(provider=provider, config=client_cfg)
         analyzer = CognitiveAnalyzer(client, PrivacySanitizer())
-        retrospective = analyzer.generate_daily_retrospective(target_date, summary)
+        retrospective = analyzer.generate_retrospective_from_metrics(metrics, period_str=period_str)
+        dashboard.render_ai_retrospective(retrospective)
 
-        print("\n" + "=" * 60)
-        print(f"Afterimage AI Retrospective: {target_date}")
-        print("=" * 60)
-        print(retrospective)
-        print("=" * 60 + "\n")
+        # 4. Multi-channel export
+        exporter = MultiChannelExporter()
+        note_path = exporter.export_daily_note(target_date, retrospective, period_str=period_str)
+        dashboard.console.print(f"[green]✓ 已同步归档至每日总结与 Obsidian:[/green] [dim]{note_path}[/dim]")
 
-        md_gen = MarkdownReportGenerator(REPORTS_DIR)
-        report_file = md_gen.generate_report(target_date, summary, ai_retrospective=retrospective)
-        print(f"📄 Full retrospective report saved to: {report_file}")
-
-        if getattr(args, "sync_obsidian", False):
-            vault_dir = None
-            if CONFIG_FILE.exists():
-                try:
-                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                        cfg = json.load(f)
-                        vault_dir = cfg.get("outputs", {}).get("obsidian_vault_dir")
-                except Exception:
-                    pass
-            if vault_dir:
-                obsidian = ObsidianVaultSync(vault_dir)
-                note = obsidian.sync_daily_note(target_date, retrospective)
-                if note:
-                    print(f"📓 Synced to Obsidian daily note: {note}")
+        if getattr(args, "send_tg", False) or getattr(args, "tg", False):
+            # Extract bullet items for telegram brief
+            brief_lines = []
+            for line in retrospective.splitlines():
+                if line.strip().startswith(("1.", "2.", "3.", "4.", "5.")):
+                    brief_lines.append(line.strip())
+            brief_summary = "\n".join(brief_lines[:5]) if brief_lines else "今日完成核心工程开发与系统维护。"
+            ok = exporter.send_telegram_brief(target_date, metrics, brief_summary)
+            if ok:
+                dashboard.console.print("[green]✓ 已推送复盘摘要至 Telegram[/green]")
+            else:
+                dashboard.console.print("[yellow]⚠️ Telegram 推送跳过或未完成 (tg 命令不可用)[/yellow]")
 
     except Exception as e:
-        print(f"Error during AI analysis: {e}", file=sys.stderr)
+        dashboard.console.print(f"[red]❌ AI 认知复盘生成失败: {e}[/red]")
 
 
 def cmd_ask(args):
+    from data import SnapshotDBManager, load_env_file
     from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer
 
+    load_env_file()
     query = args.query
     target_date = getattr(args, "date", None) or datetime.datetime.now().strftime("%Y-%m-%d")
-    db = Database()
-    records = db.query_day(target_date)
+
+    db_mgr = SnapshotDBManager()
+    with db_mgr:
+        con = db_mgr.get_connection()
+        cur = con.cursor()
+        rows = cur.execute(
+            "SELECT * FROM window_activities WHERE date(start_time) = ? ORDER BY id DESC LIMIT 100;",
+            (target_date,),
+        ).fetchall()
+        records = [dict(r) for r in rows]
 
     if not records:
         print(f"No telemetry records found for date: {target_date}")
@@ -1690,11 +1755,21 @@ def cmd_ask(args):
             "duration": format_duration(r["duration_seconds"]),
         })
 
-    provider = getattr(args, "provider", "ollama") or "ollama"
+    provider = getattr(args, "provider", None)
+    if not provider or provider == "ollama":
+        if os.environ.get("GEMINI_API_KEY"):
+            provider = "gemini"
+        elif os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+            provider = "deepseek"
+        else:
+            provider = "ollama"
+
     model = getattr(args, "model", None)
     client_cfg = {}
     if model:
         client_cfg["model"] = model
+    elif provider == "gemini":
+        client_cfg["model"] = "gemini-2.5-flash"
 
     try:
         client = AIClientFactory.create(provider=provider, config=client_cfg)
@@ -1818,9 +1893,11 @@ def main():
     # analyze (AI Retrospective)
     parser_analyze = subparsers.add_parser("analyze", help="Run AI cognitive retrospective analysis")
     parser_analyze.add_argument("--date", help="Specify date (YYYY-MM-DD)")
-    parser_analyze.add_argument("--provider", default="ollama", choices=["ollama", "gemini", "deepseek", "openai"], help="AI provider (default: ollama)")
+    parser_analyze.add_argument("--provider", default="gemini", choices=["ollama", "gemini", "deepseek", "openai"], help="AI provider (default: gemini)")
     parser_analyze.add_argument("--model", help="AI model name override")
-    parser_analyze.add_argument("--sync-obsidian", action="store_true", help="Sync retrospective to Obsidian daily note")
+    parser_analyze.add_argument("--cycle-2pm", action="store_true", default=True, help="Use 2pm-to-next-day-2pm window cycle (default: True)")
+    parser_analyze.add_argument("--today", action="store_true", help="Explicitly target today's cycle")
+    parser_analyze.add_argument("--tg", action="store_true", help="Push concise brief to Telegram")
 
     # ask (AI Natural Language Query)
     parser_ask = subparsers.add_parser("ask", help="Query telemetry history with natural language")

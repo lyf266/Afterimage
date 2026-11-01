@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..ai.clustering import FlowMetrics
+from ai.clustering import FlowMetrics
 
 
 class MultiChannelExporter:
