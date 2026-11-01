@@ -2,7 +2,7 @@
 
 ## 1. Project Mission & Identity
 **Afterimage (残影)** is a native Linux KDE Plasma 6 (Wayland) desktop cognitive telemetry and autonomous AI retrospective synthesis engine.
-It extends `desktop-timetracker` by adding local-first AI analysis, attention/flow modeling, context-switching cognitive loss calculation, and multi-format structured retrospective outputs (Markdown, Obsidian, natural language CLI).
+It features native Wayland event capture, local-first AI analysis, attention/flow modeling, context-switching cognitive loss calculation, and multi-format structured retrospective outputs (Markdown, Obsidian, natural language CLI).
 
 ## 2. Architecture & Design Principles
 1. **Zero-disruption Wayland event backbone**:
@@ -10,7 +10,6 @@ It extends `desktop-timetracker` by adding local-first AI analysis, attention/fl
    - Resource budget: resident memory < 20 MB, idle CPU < 0.1%.
 2. **Local Privacy & Strict Redaction**:
    - All raw telemetry is stored in local SQLite (`~/.local/share/afterimage/afterimage.db`).
-   - Prioritize backward compatibility with existing `desktop-timetracker` databases (`~/.local/share/timetracker/timetracker.db`).
    - Before passing any activity data or window titles to an LLM, run through `src/ai/sanitizer.py` to scrub tokens, passwords, and file paths.
 3. **Pluggable AI Backends**:
    - Support offline inference via local Ollama (`http://localhost:11434`).

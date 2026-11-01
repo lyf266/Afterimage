@@ -9,7 +9,7 @@
 
 **Afterimage（残影）** 是面向 Linux（KDE Plasma 6 Wayland）的原生桌面认知轨迹追踪与自主 AI 复盘分析引擎。
 
-项目基于 `desktop-timetracker` 极低资源开销、零外部依赖的原生事件监听核心构建，打破传统时间统计工具仅输出生硬“时长数字”的局限。它捕捉用户在数字工作台留下的“操作残影”——活动窗口切换、持续专注时长、硬件按键节奏、鼠标轨迹活力以及多任务被打断的碎片分布，并通过本地或云端大模型（LLM）进行智能会话聚类、心流状态评估、注意力残留损耗审计与自动化多模态复盘报告沉淀。
+项目打破传统时间统计工具仅输出生硬“时长数字”的局限，深度捕捉用户在数字工作台留下的“操作残影”——活动窗口切换、持续专注时长、硬件按键节奏、鼠标轨迹活力以及多任务被打断的碎片分布，并通过本地或云端大模型（LLM）进行智能会话聚类、心流状态评估、注意力残留损耗审计与自动化多模态复盘报告沉淀。
 
 ---
 
@@ -119,8 +119,7 @@ afterimage report --date today --output ~/Documents/AfterimageReports/
 ```json
 {
   "storage": {
-    "db_path": "~/.local/share/afterimage/afterimage.db",
-    "fallback_db_path": "~/.local/share/timetracker/timetracker.db"
+    "db_path": "~/.local/share/afterimage/afterimage.db"
   },
   "ai": {
     "provider": "ollama",

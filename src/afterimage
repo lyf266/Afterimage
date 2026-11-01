@@ -104,7 +104,7 @@ I18N = {
         "lang_switched": "Successfully changed language to: {lang}",
         "lang_current": "Current configured language: {lang}",
         "lang_available": "Available languages: en (English), zh (Simplified Chinese), auto (System Locale)",
-        "service_installed": "Successfully installed and started systemd user service: desktop-timetracker.service",
+        "service_installed": "Successfully installed and started systemd user service: afterimage.service",
         "report_saved": "Report saved to: {path}",
         "report_exported": "Daily report exported: {path}",
         "unknown_app": "Unknown Application",
@@ -115,7 +115,7 @@ I18N = {
         "dur_m_s": "{m}m {s:02d}s",
         "dur_s": "{s}s",
         # Report Markdown
-        "md_title": "# 📊 Desktop Daily Time Report ({date})",
+        "md_title": "# 📊 Afterimage Daily Time Report ({date})",
         "md_generated_at": "Auto-generated at: {dt}",
         "md_core_kpis": "## 1. Core Overview",
         "md_total_uptime": "Total Uptime",
@@ -139,7 +139,7 @@ I18N = {
         "md_col_keys": "Keystrokes",
         "md_col_mouse": "Mouse Travel",
         "md_col_viz": "Activity Visualization",
-        "md_footer": "*Automatically recorded by Desktop TimeTracker*",
+        "md_footer": "*Automatically recorded by Afterimage*",
         "md_no_records": "No activity records found for this date.",
     },
     "zh": {
@@ -174,7 +174,7 @@ I18N = {
         "lang_switched": "已将语言成功切换为: {lang}",
         "lang_current": "当前配置语言: {lang}",
         "lang_available": "可用语言: en (English), zh (简体中文), auto (系统默认)",
-        "service_installed": "已成功安装并启动 systemd 用户服务: desktop-timetracker.service",
+        "service_installed": "已成功安装并启动 systemd 用户服务: afterimage.service",
         "report_saved": "报告已保存至: {path}",
         "report_exported": "每日时间报告已导出: {path}",
         "unknown_app": "未知应用",
@@ -185,7 +185,7 @@ I18N = {
         "dur_m_s": "{m}分钟{s:02d}秒",
         "dur_s": "{s}秒",
         # Report Markdown
-        "md_title": "# 📊 桌面使用时间日报 ({date})",
+        "md_title": "# 📊 Afterimage 桌面使用时间日报 ({date})",
         "md_generated_at": "自动生成时间: {dt}",
         "md_core_kpis": "## 1. 核心概览",
         "md_total_uptime": "总开机时长",
@@ -209,7 +209,7 @@ I18N = {
         "md_col_keys": "打字量",
         "md_col_mouse": "鼠标滑行",
         "md_col_viz": "活跃度可视化",
-        "md_footer": "*由 Desktop TimeTracker 自动记录生成*",
+        "md_footer": "*由 Afterimage (残影) 自动记录生成*",
         "md_no_records": "该日期无活动记录。",
     }
 }
@@ -1326,7 +1326,7 @@ class Daemon:
         self._pending_carryover_mouse_px = 0.0
 
     def run(self):
-        print(f"[{datetime.datetime.now()}] Starting Desktop TimeTracker Daemon...")
+        print(f"[{datetime.datetime.now()}] Starting Afterimage Daemon...")
         ensure_dirs()
         self.load_kwin_script()
 
@@ -1349,8 +1349,9 @@ class Daemon:
                     time.sleep(0.5)
                     continue
 
-                if "TIMETRACKER_TICK:" in line:
-                    raw_data = line.split("TIMETRACKER_TICK:", 1)[1].strip()
+                if "AFTERIMAGE_TICK:" in line or "TIMETRACKER_TICK:" in line:
+                    prefix = "AFTERIMAGE_TICK:" if "AFTERIMAGE_TICK:" in line else "TIMETRACKER_TICK:"
+                    raw_data = line.split(prefix, 1)[1].strip()
                     try:
                         data = None if raw_data == "null" else json.loads(raw_data)
                         self.handle_sample(data)
@@ -1370,7 +1371,7 @@ class Daemon:
             if self.journal_proc:
                 self.journal_proc.terminate()
             self.unload_kwin_script()
-            print(f"[{datetime.datetime.now()}] TimeTracker Daemon stopped cleanly.")
+            print(f"[{datetime.datetime.now()}] Afterimage Daemon stopped cleanly.")
 
 
 # --- CLI Commands ---
