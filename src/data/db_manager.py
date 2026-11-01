@@ -45,7 +45,11 @@ class SnapshotDBManager:
         Returns the snapshot path.
         """
         if not self.original_path or not self.original_path.exists():
-            raise FileNotFoundError("Production database not found for snapshot.")
+            raise FileNotFoundError(
+                "❌ 数据库未找到 (Database not found).\n"
+                "提示: 请确保已运行 desktop-timetracker 或 afterimage 守护进程生成初始数据。\n"
+                "检测路径: ~/.local/share/afterimage/afterimage.db 或 ~/.local/share/timetracker/timetracker.db"
+            )
 
         self._temp_dir = tempfile.TemporaryDirectory(prefix="afterimage_snapshot_")
         snapshot_file = Path(self._temp_dir.name) / "snapshot.db"
@@ -57,7 +61,7 @@ class SnapshotDBManager:
 
     def get_connection(self) -> sqlite3.Connection:
         """
-        Returns a read-only SQLite connection to the snapshot.
+        Returns a read-only SQLite connection to the snapshot and validates schema compatibility.
         """
         if not self.snapshot_path:
             self.create_snapshot()
@@ -65,6 +69,17 @@ class SnapshotDBManager:
         uri = f"file:{self.snapshot_path}?mode=ro"
         con = sqlite3.connect(uri, uri=True)
         con.row_factory = sqlite3.Row
+
+        # Check for minimum required table window_activities
+        cur = con.cursor()
+        tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()]
+        if "window_activities" not in tables:
+            con.close()
+            raise ValueError(
+                "❌ 数据库结构不匹配 (Schema Mismatch): 数据库中缺少必要的数据表 'window_activities'。\n"
+                "如果您使用的是非标准数据库，请确认数据表兼容性。"
+            )
+
         return con
 
     def cleanup(self):

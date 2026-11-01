@@ -78,11 +78,18 @@ class OllamaClient(BaseAIClient):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("message", {}).get("content", "")
         except urllib.error.URLError as e:
-            raise RuntimeError(f"Ollama connection error at {url}: {e}")
+            raise RuntimeError(
+                f"❌ 本地 Ollama 服务未运行或无法连接 ({url}): {e}\n"
+                f"提示: 请先运行 `ollama serve` 启动本地推理引擎，或使用 `--provider gemini` 切换为云端模型。"
+            )
+        except TimeoutError:
+            raise RuntimeError(
+                f"❌ 本地 Ollama 请求超时 (超过 30 秒)。请检查模型 {self.model} 是否加载过慢或显存不足。"
+            )
 
 
 class GeminiClient(BaseAIClient):
@@ -119,7 +126,7 @@ class GeminiClient(BaseAIClient):
 
         try:
             opener = _get_urllib_opener()
-            with opener.open(req, timeout=120) as resp:
+            with opener.open(req, timeout=45) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 candidates = data.get("candidates", [])
                 if candidates:
@@ -129,9 +136,11 @@ class GeminiClient(BaseAIClient):
                 return ""
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8")
-            raise RuntimeError(f"Gemini API HTTP {e.code}: {err_body}")
+            raise RuntimeError(f"❌ Gemini API HTTP {e.code}: {err_body}")
         except urllib.error.URLError as e:
-            raise RuntimeError(f"Gemini API connection error: {e}")
+            raise RuntimeError(f"❌ Gemini 网络连接超时或失败: {e}\n提示: 请检查本地网络或代理设置 (127.0.0.1:20171)。")
+        except TimeoutError:
+            raise RuntimeError("❌ Gemini API 请求超时 (超过 45 秒)。未收到响应，已主动中断避免终端卡死。")
 
 
 class OpenAICompatibleClient(BaseAIClient):
@@ -172,7 +181,7 @@ class OpenAICompatibleClient(BaseAIClient):
 
         try:
             opener = _get_urllib_opener()
-            with opener.open(req, timeout=120) as resp:
+            with opener.open(req, timeout=45) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 choices = data.get("choices", [])
                 if choices:
@@ -180,9 +189,11 @@ class OpenAICompatibleClient(BaseAIClient):
                 return ""
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8")
-            raise RuntimeError(f"API HTTP {e.code}: {err_body}")
+            raise RuntimeError(f"❌ OpenAI/DeepSeek API HTTP {e.code}: {err_body}")
         except urllib.error.URLError as e:
-            raise RuntimeError(f"API connection error: {e}")
+            raise RuntimeError(f"❌ API 连接超时或失败: {e}\n提示: 请检查 API 密钥及代理连通性。")
+        except TimeoutError:
+            raise RuntimeError("❌ API 请求超时 (超过 45 秒)。未收到响应，已主动中断避免终端卡死。")
 
 
 class AIClientFactory:
