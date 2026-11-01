@@ -1625,7 +1625,8 @@ def cmd_analyze(args):
     # Securely load environment without plain text in repository
     load_env_file()
 
-    dashboard = TerminalDashboard()
+    lang = get_language(getattr(args, "lang", None))
+    dashboard = TerminalDashboard(lang=lang)
     dashboard.render_header()
 
     target_date = args.date or datetime.datetime.now().strftime("%Y-%m-%d")
@@ -1697,13 +1698,22 @@ def cmd_analyze(args):
 
     # Privacy Notice regarding Cloud AI vs Local AI
     if provider != "ollama":
-        dashboard.console.print(
-            "[bold yellow]⚠️ 隐私与安全提示 (Cloud AI Notice):[/bold yellow]\n"
-            "[dim]• 当前正使用云端大模型进行认知复盘分析，活动聚合数据经本地脱敏后仍需传输至第三方模型服务商。\n"
-            "• 规则脱敏无法 100% 保证识别所有形式的敏感专有名词与私密内容。\n"
-            "• 您可在 ~/.config/afterimage/config.json 的 privacy.custom_redact_words 中配置专属敏感词，\n"
-            "  或使用 --provider ollama 完全在本地离线推理。[/dim]\n"
-        )
+        if lang == "en":
+            dashboard.console.print(
+                "[bold yellow]⚠️ Privacy Notice (Cloud AI):[/bold yellow]\n"
+                "[dim]• Cloud inference transmits sanitized telemetry to third-party providers.\n"
+                "• Rule-based redaction cannot guarantee 100% detection of private names or terms.\n"
+                "• Configure custom sensitive words in ~/.config/afterimage/config.json\n"
+                "  or run locally via --provider ollama.[/dim]\n"
+            )
+        else:
+            dashboard.console.print(
+                "[bold yellow]⚠️ 隐私与安全提示 (Cloud AI Notice):[/bold yellow]\n"
+                "[dim]• 当前正使用云端大模型进行认知复盘分析，活动聚合数据经本地脱敏后仍需传输至第三方模型服务商。\n"
+                "• 规则脱敏无法 100% 保证识别所有形式的敏感专有名词与私密内容。\n"
+                "• 您可在 ~/.config/afterimage/config.json 的 privacy.custom_redact_words 中配置专属敏感词，\n"
+                "  或使用 --provider ollama 完全在本地离线推理。[/dim]\n"
+            )
 
     # Load custom sensitive words from config if available
     custom_words = []
@@ -1716,33 +1726,38 @@ def cmd_analyze(args):
             pass
 
     # 3. AI Cognitive Synthesis
-    dashboard.console.print(f"[dim]🧠 正在调用 AI 认知分析引擎 ({provider}:{client_cfg.get('model', 'default')})...[/dim]")
+    status_msg = f"[dim]🧠 Invoking AI Cognitive Engine ({provider}:{client_cfg.get('model', 'default')})...[/dim]" if lang == "en" else f"[dim]🧠 正在调用 AI 认知分析引擎 ({provider}:{client_cfg.get('model', 'default')})...[/dim]"
+    dashboard.console.print(status_msg)
     try:
         client = AIClientFactory.create(provider=provider, config=client_cfg)
         analyzer = CognitiveAnalyzer(client, PrivacySanitizer(custom_words=custom_words))
-        retrospective = analyzer.generate_retrospective_from_metrics(metrics, period_str=period_str)
+        retrospective = analyzer.generate_retrospective_from_metrics(metrics, period_str=period_str, lang=lang)
         dashboard.render_ai_retrospective(retrospective)
 
         # 4. Multi-channel export
         exporter = MultiChannelExporter()
         note_path = exporter.export_daily_note(target_date, retrospective, period_str=period_str)
-        dashboard.console.print(f"[green]✓ 已同步归档至每日总结与 Obsidian:[/green] [dim]{note_path}[/dim]")
+        saved_msg = f"[green]✓ Synced to daily note and Obsidian:[/green] [dim]{note_path}[/dim]" if lang == "en" else f"[green]✓ 已同步归档至每日总结与 Obsidian:[/green] [dim]{note_path}[/dim]"
+        dashboard.console.print(saved_msg)
 
         if getattr(args, "send_tg", False) or getattr(args, "tg", False):
             # Extract bullet items for telegram brief
             brief_lines = []
             for line in retrospective.splitlines():
-                if line.strip().startswith(("1.", "2.", "3.", "4.", "5.")):
+                if line.strip().startswith(("1.", "2.", "3.", "4.", "5.", "-")):
                     brief_lines.append(line.strip())
-            brief_summary = "\n".join(brief_lines[:5]) if brief_lines else "今日完成核心工程开发与系统维护。"
+            brief_summary = "\n".join(brief_lines[:5]) if brief_lines else ("Completed core development and system tasks today." if lang == "en" else "今日完成核心工程开发与系统维护。")
             ok = exporter.send_telegram_brief(target_date, metrics, brief_summary)
             if ok:
-                dashboard.console.print("[green]✓ 已推送复盘摘要至 Telegram[/green]")
+                tg_msg = "[green]✓ Telegram brief sent successfully[/green]" if lang == "en" else "[green]✓ 已推送复盘摘要至 Telegram[/green]"
+                dashboard.console.print(tg_msg)
             else:
-                dashboard.console.print("[yellow]⚠️ Telegram 推送跳过或未完成 (tg 命令不可用)[/yellow]")
+                tg_fail = "[yellow]⚠️ Telegram push skipped (tg CLI unavailable)[/yellow]" if lang == "en" else "[yellow]⚠️ Telegram 推送跳过或未完成 (tg 命令不可用)[/yellow]"
+                dashboard.console.print(tg_fail)
 
     except Exception as e:
-        dashboard.console.print(f"[red]❌ AI 认知复盘生成失败: {e}[/red]")
+        err_msg = f"[red]❌ AI retrospective generation failed: {e}[/red]" if lang == "en" else f"[red]❌ AI 认知复盘生成失败: {e}[/red]"
+        dashboard.console.print(err_msg)
 
 
 def cmd_ask(args):
@@ -1750,6 +1765,7 @@ def cmd_ask(args):
     from ai import AIClientFactory, CognitiveAnalyzer, PrivacySanitizer
 
     load_env_file()
+    lang = get_language(getattr(args, "lang", None))
     query = args.query
     target_date = getattr(args, "date", None) or datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -1764,7 +1780,8 @@ def cmd_ask(args):
         records = [dict(r) for r in rows]
 
     if not records:
-        print(f"No telemetry records found for date: {target_date}")
+        msg = f"No telemetry records found for date: {target_date}" if lang == "en" else f"未在数据库中找到日期 {target_date} 的遥测记录"
+        print(msg)
         return
 
     context_records = []
@@ -1796,9 +1813,11 @@ def cmd_ask(args):
         client = AIClientFactory.create(provider=provider, config=client_cfg)
         analyzer = CognitiveAnalyzer(client, PrivacySanitizer())
         answer = analyzer.answer_query(context_records, query)
-        print(f"\n🧠 Afterimage Answer:\n{answer}\n")
+        title_msg = f"\n🧠 Afterimage Answer:\n{answer}\n" if lang == "en" else f"\n🧠 Afterimage 回答:\n{answer}\n"
+        print(title_msg)
     except Exception as e:
-        print(f"Error executing natural language query: {e}", file=sys.stderr)
+        err_msg = f"Error executing natural language query: {e}" if lang == "en" else f"执行自然语言查询失败: {e}"
+        print(err_msg, file=sys.stderr)
 
 
 def cmd_status(args):
@@ -1919,6 +1938,7 @@ def main():
     parser_analyze.add_argument("--cycle-2pm", action="store_true", default=True, help="Use 2pm-to-next-day-2pm window cycle (default: True)")
     parser_analyze.add_argument("--today", action="store_true", help="Explicitly target today's cycle")
     parser_analyze.add_argument("--tg", action="store_true", help="Push concise brief to Telegram")
+    parser_analyze.add_argument("--lang", choices=["en", "zh"], help="Display language (en/zh)")
 
     # ask (AI Natural Language Query)
     parser_ask = subparsers.add_parser("ask", help="Query telemetry history with natural language")
@@ -1926,6 +1946,7 @@ def main():
     parser_ask.add_argument("--date", help="Specify date (YYYY-MM-DD)")
     parser_ask.add_argument("--provider", default="ollama", choices=["ollama", "gemini", "deepseek", "openai"], help="AI provider (default: ollama)")
     parser_ask.add_argument("--model", help="AI model name override")
+    parser_ask.add_argument("--lang", choices=["en", "zh"], help="Display language (en/zh)")
 
     # status
     parser_status = subparsers.add_parser("status", help="Show daemon status & active window")

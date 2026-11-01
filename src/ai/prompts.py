@@ -56,6 +56,46 @@ class PromptCatalog:
 - **建议**: （列出 2-3 条高杠杆的明日改进建议）
 """
 
+    DAILY_RETROSPECTIVE_USER_EN = """
+Please generate a structured daily cognitive retrospective and efficiency audit report based on the following desktop telemetry and session clusters.
+
+## 📊 Period & Fundamental Metrics
+- Period: {period_str}
+- Total Online Duration: {total_duration_hours:.2f}h ({total_duration_mins:.1f}m)
+- Active Focus Duration: {active_hours:.2f}h ({active_mins:.1f}m, {active_ratio:.1f}%)
+- Screen Locked Duration: {locked_mins:.1f}m
+- Hardware Dynamics: {total_keys:,} keystrokes, {total_clicks:,} mouse clicks, {total_meters:.1f} m mouse travel
+- Longest Continuous Focus Streak: {longest_flow_str}
+- Deep Work Duration: {deep_work_str}
+- Fragmentation Index: {fragmentation_str} ({frag_count} fragmented switches)
+- Energy Utilization: {energy_eff_pct}%
+- Output-to-Energy Ratio: {output_energy_ratio}
+
+## 🖥️ Work Session Clusters
+{session_summary}
+
+---
+
+Please output in English, adhering strictly to the following markdown structure (concise, factual, objective):
+
+## 📅 Core Outputs & Key Milestones
+(Summarize 3-5 major achievements/projects advanced today with corresponding time intervals and primary apps)
+
+## 📊 Cognitive & Efficiency Audit
+- **Duration**: Total online {total_duration_hours:.2f}h, active focus {active_hours:.2f}h, {total_keys:,} keystrokes, {total_meters:.1f} m mouse travel
+- **Efficiency**: (Objective assessment of today's progress)
+- **Energy Utilization**: {energy_eff_pct}%    **Output/Energy Ratio**: {output_energy_ratio}
+- **Deep Work Duration**: ~{deep_work_hours:.1f} hours
+- **Longest Continuous Focus Streak**: {longest_flow_str}
+- **Fragmentation Index**: (Assessment of context switching & attention continuity)
+- **Shallow / Communication Overhead**: (Evaluation of non-core overhead)
+- **Goal Alignment**: (Alignment with primary objectives)
+
+## 💡 Summary & Actionable Directives
+- **Summary**: (Objective retrospective of today's wins and deficits)
+- **Actionable Directives for Tomorrow**: (2-3 high-leverage concrete adjustments)
+"""
+
     TELEGRAM_BRIEF_TEMPLATE = """📅
 {key_events}
 ---
