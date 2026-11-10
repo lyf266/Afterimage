@@ -96,6 +96,14 @@ class TestAIClientFactory(unittest.TestCase):
         client = AIClientFactory.create("ollama", {"base_url": "http://localhost:11434", "model": "qwen2.5:7b"})
         self.assertEqual(client.model, "qwen2.5:7b")
 
+    def test_create_openrouter_client(self):
+        client = AIClientFactory.create(
+            "openrouter",
+            {"api_key": "test_key", "model": "nvidia/nemotron-3.5-lightning:free"}
+        )
+        self.assertEqual(client.model, "nvidia/nemotron-3.5-lightning:free")
+        self.assertEqual(client.api_key, "test_key")
+
     def test_invalid_provider(self):
         with self.assertRaises(ValueError):
             AIClientFactory.create("unsupported_provider")
